@@ -10,11 +10,11 @@ DOCDIR     := $(DESTDIR)$(PREFIX)/share/doc/aify
 PROFILEDIR := $(DESTDIR)$(PREFIX)/etc/profile.d
 COMPDIR    := $(DESTDIR)$(PREFIX)/share/bash-completion/completions
 
-.PHONY: all install uninstall deb check lint version clean
+.PHONY: all install uninstall deb apt-repo check lint version clean
 
 all:
 	@echo "aify $(VERSION)"
-	@echo "hedefler: install, uninstall, deb, check, lint"
+	@echo "hedefler: install, uninstall, deb, apt-repo, check, lint"
 
 version:
 	@echo $(VERSION)
@@ -36,12 +36,15 @@ uninstall:
 deb:
 	packaging/build-deb.sh
 
+apt-repo: deb
+	packaging/build-apt-repo.sh
+
 check:
 	tests/run-tests.sh
 
 lint:
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck yok, atlaniyor"; exit 0; }
-	shellcheck -s bash -e SC1090,SC1091,SC1094 src/bin/aify src/lib/aify/*.sh packaging/build-deb.sh install.sh tests/run-tests.sh
+	shellcheck -s bash -e SC1090,SC1091,SC1094 src/bin/aify src/lib/aify/*.sh packaging/*.sh install.sh tests/run-tests.sh
 
 clean:
-	rm -rf build dist
+	rm -rf build dist site

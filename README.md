@@ -88,7 +88,8 @@ pkg update && pkg install aify
 ```
 
 > Depo, `v*` etiketi atıldığında `release.yml` iş akışıyla GitHub Pages'e yayımlanır.
-> (Repo ayarlarında **Settings → Pages → Source: GitHub Actions** açık olmalı.)
+> (Repo ayarlarında **Settings → Pages → Source: GitHub Actions** seçili olmalı; aksi hâlde
+> `pages` işi hata verir, `.deb` yine de sürüme eklenir.)
 
 ### 2) Hazır `.deb` ile
 
@@ -207,15 +208,18 @@ Ortam değişkenleri: `AIFY_HOME` (varsayılan `~/.aify`), `AIFY_YES=1` (soru so
 ## Geliştirme
 
 ```bash
-make check     # 60+ test (Termux dışında da çalışır)
+make check     # 72 test (Termux dışında da çalışır)
 make lint      # shellcheck
 make deb       # dist/aify_<sürüm>_all.deb
+make apt-repo  # site/ altında yayına hazır apt deposu
 make install DESTDIR=/tmp/stage PREFIX=/usr
 ```
 
 Testler; kayıt dosyalarının geçerliliğini, ELF sınıflandırmasını, npm yerleşimlerinde ikili
 çözümlemeyi (iç içe ve "stub" sarmalayıcı durumları dâhil), glibc ikilisinde arka ucun otomatik
-değişmesini, `.deb` içeriğini ve `make install/uninstall` akışını doğrular.
+değişmesini, `.deb` içeriğini, apt deposunun yapısını (Release karma değerleri dâhil) ve
+`make install/uninstall` akışını doğrular. Sürüm iş akışı ayrıca depoyu **gerçek `apt-get update`
+ile** `aarch64` mimarisinde doğrular.
 
 ## Lisans
 

@@ -18,56 +18,84 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: make lint && make check
+      - name: arac bagimliliklari
+        run: |
+          command -v shellcheck >/dev/null || sudo apt-get install -y -qq shellcheck
+          command -v dpkg-scanpackages >/dev/null || sudo apt-get install -y -qq dpkg-dev
+
+      - name: lint + testler
+        run: |
+          make lint
+          make check
 
       - id: ver
         run: echo "version=$(make -s version)" >> "$GITHUB_OUTPUT"
 
-      - run: make deb
+      - name: .deb uret
+        run: |
+          make deb
+          dpkg-deb -I dist/aify_*_all.deb
 
-      - name: apt deposu olustur (GitHub Pages icin)
+      - name: apt deposunu uret
+        run: |
+          packaging/build-apt-repo.sh --out site \
+            --url "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+
+      - name: apt deposunu dogrula (gercek apt ile)
         run: |
           set -eux
-          deb=$(ls dist/aify_*_all.deb)
-          mkdir -p site/pool/main/a/aify
-          cp "$deb" site/pool/main/a/aify/
-          cd site
-          # Termux'un apt'si mimariye ozel indeks arar; hepsine ayni listeyi koyuyoruz
-          for arch in all aarch64 arm i686 x86_64; do
-            mkdir -p "dists/aify/main/binary-$arch"
-            dpkg-scanpackages --multiversion pool /dev/null > "dists/aify/main/binary-$arch/Packages"
-            gzip -9c "dists/aify/main/binary-$arch/Packages" > "dists/aify/main/binary-$arch/Packages.gz"
-          done
-          cat > dists/aify/Release <<REL
-          Origin: termux-aify
-          Label: aify
-          Suite: aify
-          Codename: aify
-          Architectures: all aarch64 arm i686 x86_64
-          Components: main
-          Description: aify - Termux yapay zeka CLI yoneticisi
-          Date: $(date -Ru)
-          REL
-          cat > index.html <<'HTML'
-          <!doctype html><meta charset="utf-8"><title>aify apt deposu</title>
-          <body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">
-          <h1>aify apt deposu</h1>
-          <p>Termux'ta:</p>
-          <pre>echo "deb [trusted=yes] https://mrhakan.github.io/termux-aify aify main" \
-  > $PREFIX/etc/apt/sources.list.d/aify.list
-pkg update &amp;&amp; pkg install aify</pre>
-          </body>
-          HTML
+          T=$(mktemp -d); mkdir -p "$T/lists/partial" "$T/cache/archives/partial" "$T/dpkg"
+          touch "$T/dpkg/status"
+          echo "deb [trusted=yes] file://$PWD/site aify main" > "$T/sources.list"
+          opts="-o Dir::Etc::sourcelist=$T/sources.list -o Dir::Etc::sourceparts=-"
+          opts="$opts -o Dir::State::lists=$T/lists -o Dir::State::status=$T/dpkg/status"
+          opts="$opts -o Dir::Cache=$T/cache -o APT::Architecture=aarch64"
+          opts="$opts -o APT::Architectures=aarch64 -o Acquire::Languages=none"
+          # shellcheck disable=SC2086
+          apt-get $opts update
+          # shellcheck disable=SC2086
+          apt-cache $opts policy aify | grep "Candidate: ${{ steps.ver.outputs.version }}"
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      - name: surum yayinla
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.deb
-          generate_release_notes: true
+      - name: surum notlari
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          pages="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          ver="${{ steps.ver.outputs.version }}"
+          {
+            echo "## Kurulum"
+            echo
+            echo "apt deposundan (onerilen):"
+            echo '```bash'
+            echo "echo \"deb [trusted=yes] $pages aify main\" > \$PREFIX/etc/apt/sources.list.d/aify.list"
+            echo "pkg update && pkg install aify"
+            echo '```'
+            echo
+            echo "Ya da dogrudan .deb ile:"
+            echo '```bash'
+            echo "curl -fLO https://github.com/$repo/releases/download/$GITHUB_REF_NAME/aify_${ver}_all.deb"
+            echo "apt install ./aify_${ver}_all.deb"
+            echo '```'
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: surumu yayinla
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/aify_*_all.deb --clobber
+            gh release edit "$tag" --notes-file release-notes.md
+          else
+            gh release create "$tag" dist/aify_*_all.deb \
+              --title "aify $tag" --notes-file release-notes.md
+          fi
 
   pages:
     needs: build
