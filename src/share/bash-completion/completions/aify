@@ -12,7 +12,7 @@ _aify() {
 	COMPREPLY=()
 	cur="${COMP_WORDS[COMP_CWORD]}"
 	prev="${COMP_WORDS[COMP_CWORD-1]}"
-	cmds="setup list info install remove update run backend add-npm add-pkg add-gh registry config env doctor version help"
+	cmds="ui banner setup list info install remove update run backend add-npm add-pkg add-gh registry config env doctor version help"
 
 	if [ "$COMP_CWORD" -eq 1 ]; then
 		mapfile -t COMPREPLY < <(compgen -W "$cmds $(_aify_tool_ids)" -- "$cur")

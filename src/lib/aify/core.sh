@@ -106,7 +106,10 @@ aify_config_unset() {
 	mv "$tmp" "$AIFY_CONFIG_FILE"
 }
 
-aify_config_list() { [ -f "$AIFY_CONFIG_FILE" ] && sort "$AIFY_CONFIG_FILE" || true; }
+aify_config_list() {
+	[ -f "$AIFY_CONFIG_FILE" ] || return 0
+	sort "$AIFY_CONFIG_FILE"
+}
 
 # --- State (kurulu arac bilgisi) --------------------------------------------
 aify_state_file() { printf '%s/%s\n' "$AIFY_STATE_DIR" "$1"; }

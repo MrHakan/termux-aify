@@ -32,7 +32,10 @@ done
 if [ -z "$DEB" ]; then
 	DEB="$(find "$ROOT/dist" -maxdepth 1 -name 'aify_*_all.deb' 2>/dev/null | sort | tail -n1)"
 fi
-[ -n "$DEB" ] && [ -f "$DEB" ] || { echo "hata: .deb bulunamadi (once: make deb)" >&2; exit 1; }
+if [ -z "$DEB" ] || [ ! -f "$DEB" ]; then
+	echo "hata: .deb bulunamadi (once: make deb)" >&2
+	exit 1
+fi
 command -v dpkg-scanpackages >/dev/null 2>&1 || { echo "hata: dpkg-scanpackages gerekli (dpkg-dev)" >&2; exit 1; }
 
 echo "==> apt deposu: $OUT  (paket: $(basename "$DEB"))"

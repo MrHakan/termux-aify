@@ -192,7 +192,37 @@ else
 	printf '  atlandi (dpkg-scanpackages yok)\n'
 fi
 
-head_ "12. make install / uninstall"
+head_ "12. Etkilesimli arayuz"
+contains "aify banner logoyu yaziyor" "aify" "$AIFY" banner
+contains "TTY yokken bare aify yardim veriyor" "KOMUTLAR" "$AIFY"
+if command -v python3 >/dev/null 2>&1; then
+	uihome="$(mktemp -d)"
+	drive() { python3 "$ROOT/tests/ui-drive.py" "$AIFY" "$uihome" "$@" 2>/dev/null; }
+	out="$(drive 'q')"
+	printf '%s' "$out" | grep -q 'Araclar'   && ok "arayuz arac listesini ciziyor"   || bad "arac listesi cizilmedi"
+	printf '%s' "$out" | grep -q 'codex'     && ok "listede araclar goruluyor"       || bad "araclar goruntulenmedi"
+	printf '%s' "$out" | grep -q 'gorusuruz' && ok "q ile temiz cikis"               || bad "q ile cikilamadi"
+	drive '\x1b[B' '\x1b[B' 'SLEEP0.5' 'q' | grep -q '❯' \
+		&& ok "yon tuslariyla secim imleci hareket ediyor" || bad "imlec hareket etmedi"
+	drive '\r' 'SLEEP1' 'q' 'q' | grep -q 'Kur / yeniden kur' \
+		&& ok "enter islem menusunu aciyor" || bad "islem menusu acilmadi"
+	drive 'b' 'SLEEP1' 'q' 'q' | grep -q 'glibc arka ucunu kur' \
+		&& ok "b arka uc ekranini aciyor" || bad "arka uc ekrani acilmadi"
+
+	# Arayuzden gercek kurulum (yerel arsivle): crush listede 7. sirada
+	mkdir -p "$uihome/fake"
+	printf '#!/bin/sh\necho "crush 9.9.9"\n' > "$uihome/fake/crush"
+	chmod +x "$uihome/fake/crush"
+	tar -czf "$uihome/crush.tar.gz" -C "$uihome/fake" crush
+	AIFY_TEST_ASSET_URL="file://$uihome/crush.tar.gz" \
+		drive '\x1b[B' '\x1b[B' '\x1b[B' '\x1b[B' '\x1b[B' '\x1b[B' 'i' 'SLEEP3' '\r' 'SLEEP1' 'q' >/dev/null
+	[ -f "$uihome/state/crush" ] && ok "arayuzden kurulum calisiyor" || bad "arayuzden kurulum basarisiz"
+	rm -rf "$uihome"
+else
+	printf '  atlandi (python3 yok)\n'
+fi
+
+head_ "13. make install / uninstall"
 stage="$AIFY_HOME/stage"
 check "make install" make -s -C "$ROOT" install DESTDIR="$stage" PREFIX=/usr
 check "kurulan aify calisiyor" test -x "$stage/usr/bin/aify"

@@ -38,15 +38,20 @@ fi
 . "$AIFY_LIBDIR/run.sh"
 # shellcheck source=/dev/null
 . "$AIFY_LIBDIR/doctor.sh"
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/ui.sh"
 
 aify_usage() {
 	cat <<'USAGE'
 aify - Termux icin yapay zeka CLI yoneticisi
 
 KULLANIM
+  aify                  Etkilesimli arayuzu acar (ASCII art + menu)
   aify <komut> [secenekler]
 
 KOMUTLAR
+  ui                    Etkilesimli arayuz (tus: yukari/asagi, enter, /, ?, q)
+  banner                Yalnizca logoyu yazar
   setup                 Ilk kurulum: dizinler, temel paketler, PATH
   list                  Bilinen araclari ve kurulum durumunu listeler
   info <id>             Arac hakkinda ayrinti
@@ -131,10 +136,16 @@ aify_cmd_registry() {
 }
 
 main() {
-	local cmd="${1:-help}"
-	[ $# -gt 0 ] && shift || true
+	local cmd="${1:-}"
+	if [ -z "$cmd" ]; then
+		if aify_ui_supported; then aify_ui; return $?; fi
+		cmd=help
+	fi
+	if [ $# -gt 0 ]; then shift; fi
 	case "$cmd" in
 		-h|--help|help)       aify_usage ;;
+		ui|menu|tui)          aify_ui ;;
+		banner|logo)          aify_banner ;;
 		-v|--version|version) printf 'aify %s\n' "$AIFY_VERSION" ;;
 		setup)                aify_cmd_setup "$@" ;;
 		list|ls)              aify_cmd_list "$@" ;;

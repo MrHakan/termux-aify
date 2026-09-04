@@ -117,9 +117,50 @@ make install            # PREFIX Termux'ta otomatik
 
 ---
 
+## Arayüz
+
+Terminalde tek başına `aify` yazınca ASCII logolu etkileşimli arayüz açılır — kurulum,
+çalıştırma, arka uç seçimi, teşhis; hepsi buradan:
+
+```
+  ▄▀█ █ █▀▀ █▄█   aify v0.1.0
+  █▀█ █ █▀░  █    Termux için yapay zekâ CLI yöneticisi
+
+  Termux · aarch64 · node 24.18.0 · arka uç: native,glibc
+
+╭─ Araçlar ─────────────────────────────────────────────╮
+│ ❯ claude      Claude Code             ● glibc         │
+│   codex       OpenAI Codex CLI        ● native        │
+│   gemini      Gemini CLI              ○ native        │
+│   agy         Antigravity CLI         ○ glibc         │
+╰───────────────────────────────────────────────────────╯
+
+  i kur   r çalıştır   enter bilgi   d sil   u güncelle
+  b arka uçlar   t teşhis   / komut   ? yardım   q çıkış
+```
+
+| Tuş | İş |
+|---|---|
+| `↑` `↓` (veya `j` `k`) | araçlar arasında gezin |
+| `enter` | seçili araç için işlem menüsü (bilgi / kur / çalıştır / güncelle / kaldır / arka uç) |
+| `i` `r` `d` `u` | doğrudan kur, çalıştır, kaldır, güncelle |
+| `b` | arka uç ekranı (glibc / proot kurulumu) |
+| `t` | `aify doctor` |
+| `/` | serbest komut satırı (`install gemini`, `config list`, …) |
+| `?` | yardım · `q` çıkış |
+
+Arayüz alternatif ekranda açılır, çıkışta terminali olduğu gibi bırakır. Betik içinden ya da
+boruyla çağrıldığında (TTY yoksa) otomatik olarak eski davranışa, yani yardım metnine düşer;
+`aify ui` ile zorlayabilir, `aify banner` ile yalnızca logoyu yazdırabilirsin.
+Unicode olmayan bir terminalde `AIFY_ASCII=1` ASCII moduna geçirir.
+
+
+---
+
 ## Kullanım
 
 ```
+aify                       # etkileşimli arayüz (yukarıdaki ekran)
 aify setup                 # dizinler, temel paketler, PATH
 aify list                  # araçlar ve kurulum durumu
 aify info claude           # ayrıntı + Termux notları
@@ -208,7 +249,7 @@ Ortam değişkenleri: `AIFY_HOME` (varsayılan `~/.aify`), `AIFY_YES=1` (soru so
 ## Geliştirme
 
 ```bash
-make check     # 72 test (Termux dışında da çalışır)
+make check     # 82 test (Termux dışında da çalışır)
 make lint      # shellcheck
 make deb       # dist/aify_<sürüm>_all.deb
 make apt-repo  # site/ altında yayına hazır apt deposu
