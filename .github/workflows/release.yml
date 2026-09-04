@@ -56,8 +56,9 @@ jobs:
 
       - name: apt deposunu uret
         run: |
+          owner_lc="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           packaging/build-apt-repo.sh --out site \
-            --url "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+            --url "https://${owner_lc}.github.io/${GITHUB_REPOSITORY#*/}"
 
       - name: apt deposunu dogrula (gercek apt ile)
         run: |
@@ -96,7 +97,8 @@ jobs:
       - name: surum notlari
         run: |
           repo="$GITHUB_REPOSITORY"
-          pages="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
+          owner_lc="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          pages="https://${owner_lc}.github.io/${GITHUB_REPOSITORY#*/}"
           ver="${{ steps.ver.outputs.version }}"
           {
             echo "## Kurulum"

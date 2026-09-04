@@ -92,6 +92,8 @@ pkg update && pkg install aify
 > (Repo ayarlarında **Settings → Pages → Source: GitHub Actions** seçili olmalı; aksi hâlde
 > `pages` işi hata verir, `.deb` yine de sürüme eklenir.)
 
+> Pages henüz açılmadıysa depo 404 verir; o zaman aşağıdaki `.deb` yolunu kullan.
+
 ### 2) Hazır `.deb` ile
 
 ```bash
