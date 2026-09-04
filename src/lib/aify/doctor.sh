@@ -110,9 +110,9 @@ aify_cmd_doctor() {
 			if [ "$backend" = glibc ] && ! aify_is_elf "$path"; then
 				_d_bad "$id: glibc arka ucuna ELF olmayan dosya kayitli - 'aify install $id' ile duzelir"
 			fi
-			if [ "$backend" = glibc ] && [ "$(aify_binary_class "$path")" = glibc ] \
-				&& [ "$(aify_elf_type "$path")" = exec ]; then
-				printf '       %snon-PIE ikili: dinamik yukleyici yerine dogrudan calistiriliyor%s\n' "$C_DIM" "$C_RESET"
+			if [ "$backend" = glibc ] && [ "$(aify_elf_type "$path")" = exec ]; then
+				_d_bad "$id: non-PIE ikili glibc arka ucunda - calistirilamaz"
+				printf '       %saify install %s --backend proot%s ile duzelir\n' "$C_BOLD" "$id" "$C_RESET"
 			fi
 		else
 			_d_bad "$id: ikili kayip ($path) - 'aify install $id'"

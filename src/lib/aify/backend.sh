@@ -202,12 +202,11 @@ aify_grun() { if aify_have grun; then grun "$@"; else glibc-runner "$@"; fi; }
 # glibc yiginini gercekten sinar: getent ile ad cozumleme.
 # Tahmin yerine gercek hatayi gosterir ("token exchange failed" gibi
 # kirpilmis mesajlarin ardindaki sebebi bulmak icin).
-# glibc'in kendi getent'i de non-PIE'dir; once yamalayip dogrudan cagiririz.
+# glibc'in kendi getent'i Termux yorumlayicisiyla derlenmistir, dogrudan calisir.
 aify_glibc_dns_test() {
 	local host="${1:-oauth2.googleapis.com}" getent out rc
 	getent="$AIFY_PREFIX/glibc/bin/getent"
 	[ -x "$getent" ] || { echo "getent yok ($getent)"; return 2; }
-	aify_glibc_configure "$getent" >/dev/null 2>&1 || true
 	# shellcheck disable=SC2030  # PATH degisikligi bilerek alt kabukta kaliyor
 	out="$(
 		unset LD_PRELOAD
@@ -224,34 +223,28 @@ aify_glibc_dns_test() {
 	return 1
 }
 
-# Calistirma yolu karari: direct (non-PIE, yamali) | grun (PIE, ld.so modu)
+# Calistirma yolu karari: grun (PIE -> ld.so modu) | proot (non-PIE)
 aify_glibc_mode() {
 	case "$(aify_elf_type "$1")" in
-		exec) echo direct ;;
+		exec) echo proot ;;
 		*)    echo grun ;;
 	esac
 }
 
+# glibc ikilisini ld.so modunda baslatir (ikili DEGISTIRILMEZ).
+# Termux'un bionic libtermux-exec.so'su LD_PRELOAD'da kalirsa glibc sureci
+# onu yuklemeye calisip patlar; once temizliyoruz.
 aify_glibc_exec() {
 	local path="$1"; shift
+	if [ "$(aify_glibc_mode "$path")" = proot ]; then
+		aify_err "$path non-PIE: glibc arka ucu bunu calistiramaz"
+		aify_die "proot ile kurun:  aify install <arac> --backend proot"
+	fi
 	unset LD_PRELOAD
 	# shellcheck disable=SC2031  # ustteki alt kabukla ilgisi yok; exec edilecek
 	export PATH="$AIFY_PREFIX/glibc/bin:$PATH"
-	if [ "$(aify_glibc_mode "$path")" = direct ]; then
-		[ -x "$path" ] || chmod +x "$path" 2>/dev/null || true
-		exec "$path" "$@"
-	fi
 	if aify_have grun; then exec grun "$path" "$@"; fi
 	exec glibc-runner "$path" "$@"
-}
-
-# Bir ELF'i glibc arka ucu icin hazirlar (interpreter/rpath yamasi)
-aify_glibc_configure() {
-	local bin="$1"
-	aify_backend_available glibc || return 1
-	aify_is_elf "$bin" || return 1
-	aify_grun -c "$bin" >/dev/null 2>&1 || return 1
-	return 0
 }
 
 # Arac icin kullanilacak arka ucu secer:

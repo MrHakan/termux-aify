@@ -71,6 +71,9 @@ aify_cmd_run() {
 				aify_warn "$id yerli calisiyor (glibc arka ucu gerekmiyor); kaydi tazelemek icin: aify install $id"
 				exec "$path" "$@"
 			fi
+			if [ "$(aify_glibc_mode "$path")" = proot ]; then
+				aify_die "$id non-PIE bir glibc ikilisi; proot ile kurun: aify install $id --backend proot"
+			fi
 			aify_backend_available glibc || aify_die "glibc arka ucu yok: aify backend setup glibc"
 			aify_glibc_exec "$path" "$@"
 			;;

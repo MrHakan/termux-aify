@@ -58,11 +58,16 @@ of `/etc/resolv.conf`, but the glibc package ships no such file — so `getaddri
 reads the literal `/etc/resolv.conf` that doesn't exist) and points `SSL_CERT_FILE` at Termux's
 CA bundle (Go's `crypto/x509` looks for `/etc/ssl`).
 
-**Non-PIE executables.** `glibc-runner` normally launches a binary as `ld.so <binary>`, but the
-dynamic loader cannot load a non-PIE (`ET_EXEC`) file that way — it segfaults. GitHub Copilot
-CLI ships exactly that: a 158 MB non-PIE Node SEA. `aify` reads `e_type` from the ELF header and
-routes accordingly: non-PIE binaries get their interpreter patched at install time and are then
-executed directly, PIE binaries go through `ld.so` (which survives self-updates).
+**Non-PIE executables.** `glibc-runner` launches a binary as `ld.so <binary>`, but the dynamic
+loader cannot load a non-PIE (`ET_EXEC`) file that way — it segfaults. GitHub Copilot CLI ships
+exactly that: a 158 MB non-PIE Node SEA. The alternative would be rewriting someone else's
+100+ MB binary in place with `patchelf`; `aify` doesn't do that. It reads `e_type` from the ELF
+header and routes non-PIE binaries to **proot** instead, where a real `/lib/ld-linux` exists and
+nothing has to be modified. PIE binaries stay on `glibc` and run untouched through `ld.so`.
+
+Reading the ELF header is done by parsing the program headers directly (`PT_INTERP`) rather than
+by scanning for strings — `readelf` isn't installed on Termux by default, and on a 200 MB binary
+the interpreter path is nowhere near the start of the file.
 
 `aify doctor` verifies all of this, including a real name-resolution test through glibc's own
 `getent` plus a control request over Termux's native stack — so you can tell a glibc problem
@@ -85,7 +90,7 @@ Run `aify list` for the up-to-date list.
 | `qwen` | Qwen Code | npm `@qwen-code/qwen-code` | **native** | pure JS |
 | `agy` | Antigravity CLI | official install script | glibc / proot | sha512-verified native binary (glibc) |
 | `opencode` | opencode | npm `opencode-ai` | glibc / proot | binary compiled with bun |
-| `copilot` | GitHub Copilot CLI | npm `@github/copilot` | glibc / proot | |
+| `copilot` | GitHub Copilot CLI | npm `@github/copilot` | **proot** | non-PIE Node SEA — `ld.so` cannot load it |
 | `opencodex` | OpenCodex | npm `@bitkyc08/opencodex` | **native** | provider proxy for Codex/Claude Code |
 | `ccr` | Claude Code Router | npm `@musistudio/claude-code-router` | **native** | routes the model |
 | `crush` | Crush | GitHub releases | **native** | Go binary, statically linked |
@@ -151,7 +156,7 @@ Just running `aify` in the terminal opens an interactive UI with an ASCII logo �
 pick a backend, run diagnostics; all from here:
 
 ```
-  ▄▀█ █ █▀▀ █▄█   aify v0.2.1
+  ▄▀█ █ █▀▀ █▄█   aify v0.3.0
   █▀█ █ █▀░  █    An AI CLI manager for Termux
 
   Termux · aarch64 · node 24.18.0 · backend: native,glibc
@@ -269,7 +274,8 @@ tool_post_install() {   # optional: $1=install dir  $2=binary path
 | `Unable to locate package aify` | the repo line was never written — run the `mkdir -p` from the install step first |
 | `invalid ELF header` when running a tool | the state has a stale backend; `aify install <id>` re-resolves it (`aify run` also self-corrects) |
 | Network errors under the glibc backend (`token exchange failed`, DNS) | `aify doctor` names the actual cause; `aify backend setup glibc` writes `$PREFIX/glibc/etc/resolv.conf`, and `aify config set glibc.dns "1.1.1.1 8.8.8.8"` sets your own resolvers |
-| `Segmentation fault` from a glibc tool | a non-PIE binary was handed to `ld.so`; fixed since 0.2.1 — `aify install <id>` re-resolves and re-patches it |
+| `Segmentation fault` from a glibc tool | a non-PIE binary was handed to `ld.so`; since 0.3.0 those are routed to proot — `aify install <id> --backend proot` |
+| `invalid ELF header` naming a `.so` under `$PREFIX/glibc` | stale state from before 0.3.0; `aify install <id>` re-resolves it |
 | See everything | `aify doctor` and `AIFY_DEBUG=1 aify ...` |
 
 Environment variables: `AIFY_HOME` (default `~/.aify`), `AIFY_YES=1` (skip prompts),
@@ -280,7 +286,7 @@ Environment variables: `AIFY_HOME` (default `~/.aify`), `AIFY_YES=1` (skip promp
 ## Development
 
 ```bash
-make check     # 97 tests (also runs outside Termux)
+make check     # 101 tests (also runs outside Termux)
 make lint      # shellcheck
 make deb       # dist/aify_<version>_all.deb
 make apt-repo  # a publish-ready apt repo under site/

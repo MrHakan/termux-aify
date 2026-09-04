@@ -4,7 +4,7 @@
 
 # Bu degiskenler diger lib dosyalarinda ve bin/aify icinde kullanilir.
 # shellcheck disable=SC2034
-AIFY_VERSION="0.2.1"
+AIFY_VERSION="0.3.0"
 
 # --- Yollar -----------------------------------------------------------------
 AIFY_PREFIX="${PREFIX:-/usr}"
@@ -158,11 +158,7 @@ aify_binary_class() {
 	if aify_have readelf; then
 		interp="$(readelf -l "$f" 2>/dev/null | sed -n 's/.*\[Requesting program interpreter: \([^]]*\)\]/\1/p' | head -n1)"
 	else
-		# .interp her zaman dosyanin basindadir; 64K'dan otesini taramak
-		# yuzlerce MB'lik ikililerde bosuna zaman kaybi olur.
-		interp="$(head -c 65536 "$f" 2>/dev/null \
-			| LC_ALL=C grep -a -m1 -o -E '/(lib|system|apex)[^ ]*/ld-?[A-Za-z0-9._-]*\.so[0-9.]*' \
-			| head -n1)"
+		interp="$(_aify_elf_interp "$f" || true)"
 	fi
 
 	case "$interp" in
@@ -172,6 +168,46 @@ aify_binary_class() {
 		*linker*)      echo static ;;   # bionic linker: zaten Termux yerlisi
 		*)             echo unknown ;;
 	esac
+}
+
+# ELF basligindan kucuk bir tamsayi okur (host little-endian; hem aarch64
+# hem x86_64 LE oldugu icin od'nin yerel siralamasi dogru sonucu verir)
+_aify_u() { od -An -j"$2" -N"$3" -tu"$3" "$1" 2>/dev/null | tr -d ' \n'; }
+
+# Yorumlayici (PT_INTERP) yolunu program basliklarindan okur.
+# Dize taramasi yeterli degil: patchelf yamaladiginda .interp dosyanin
+# ortasina tasinabiliyor (200MB'lik agy ikilisinde oyle oluyor) ve ikili
+# yanlislikla "statik" sanilip yanlis arka uca yonleniyordu.
+# readelf Termux'ta varsayilan gelmedigi icin basliklari elle cozuyoruz.
+_aify_elf_interp() {
+	local f="$1" cls phoff phentsize phnum i off ptype poff psz
+	cls="$(_aify_u "$f" 4 1)"
+	case "$cls" in
+		2) phoff="$(_aify_u "$f" 32 8)"; phentsize="$(_aify_u "$f" 54 2)"; phnum="$(_aify_u "$f" 56 2)" ;;
+		1) phoff="$(_aify_u "$f" 28 4)"; phentsize="$(_aify_u "$f" 42 2)"; phnum="$(_aify_u "$f" 44 2)" ;;
+		*) return 1 ;;
+	esac
+	[ -n "$phoff" ] && [ -n "$phnum" ] && [ "${phnum:-0}" -gt 0 ] 2>/dev/null || return 1
+	[ "$phnum" -le 128 ] 2>/dev/null || phnum=128
+
+	i=0
+	while [ "$i" -lt "$phnum" ]; do
+		off=$(( phoff + i * phentsize ))
+		ptype="$(_aify_u "$f" "$off" 4)"
+		if [ "$ptype" = 3 ]; then   # PT_INTERP
+			if [ "$cls" = 2 ]; then
+				poff="$(_aify_u "$f" $((off + 8)) 8)"; psz="$(_aify_u "$f" $((off + 32)) 8)"
+			else
+				poff="$(_aify_u "$f" $((off + 4)) 4)"; psz="$(_aify_u "$f" $((off + 16)) 4)"
+			fi
+			[ -n "$poff" ] && [ -n "$psz" ] && [ "$psz" -gt 0 ] 2>/dev/null || return 1
+			[ "$psz" -le 4096 ] 2>/dev/null || psz=4096
+			dd if="$f" bs=1 skip="$poff" count="$psz" 2>/dev/null | tr -d '\000'
+			return 0
+		fi
+		i=$((i + 1))
+	done
+	return 1   # PT_INTERP yok -> statik
 }
 
 # ELF tipi: exec (non-PIE) | dyn (PIE) | none
@@ -200,6 +236,22 @@ aify_class_backend() {
 		glibc)         echo glibc ;;
 		musl)          echo proot ;;
 		*)             echo native ;;
+	esac
+}
+
+# Ikilinin gercekte hangi arka uctan calisabilecegi.
+# glibc + non-PIE ozel durumu: glibc-runner ikiliyi 'ld.so BINARY' seklinde
+# baslatir, dinamik yukleyici ise non-PIE (ET_EXEC) bir dosyayi yukleyemez.
+# Tek alternatif ikiliyi patchelf ile yamalamaktir; baskasinin 100+MB'lik
+# ikilisini yerinde degistirmek riskli oldugu icin bunu yapmiyoruz - boyle
+# araclar proot kabinda gercek bir /lib/ld-linux ile sorunsuz calisir.
+aify_runtime_backend() {
+	local path="$1" class="$2"
+	case "$class" in
+		glibc)
+			if [ "$(aify_elf_type "$path")" = exec ]; then echo proot; else echo glibc; fi
+			;;
+		*) aify_class_backend "$class" ;;
 	esac
 }
 

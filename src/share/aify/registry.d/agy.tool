@@ -20,5 +20,6 @@ Ag icin iki sey gerekir, ikisini de aify saglar:
     hatalar alirsiniz; 'aify backend setup glibc' dosyayi olusturur.
   - TLS: Go'nun x509'u Android'de olmayan /etc/ssl'i arar; aify calistirirken
     SSL_CERT_FILE'i Termux'un ca-certificates demetine yonlendirir.
-agy arka planda kendini gunceller: guncelleme sonrasi yeni ikili yamasiz
-kalirsa 'aify install agy' ile arka ucu tazeleyin."
+Ikili PIE oldugu icin ld.so modunda, DEGISTIRILMEDEN calistirilir.
+agy arka planda kendini gunceller; 'aify install agy' eski ikiliyi silip
+resmi betige temiz indirme yaptirir."

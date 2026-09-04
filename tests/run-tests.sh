@@ -195,12 +195,26 @@ if [ -x /bin/ls ] && aify_is_elf /bin/ls; then
 	printf '\003\000' | dd of="$AIFY_HOME/pie.bin"    bs=1 seek=16 conv=notrunc status=none
 	[ "$(aify_elf_type "$AIFY_HOME/nonpie.bin")" = exec ] && ok "non-PIE (EXEC) tespit ediliyor" || bad "EXEC tespiti"
 	[ "$(aify_elf_type "$AIFY_HOME/pie.bin")" = dyn ] && ok "PIE (DYN) tespit ediliyor" || bad "DYN tespiti"
-	# 10b) Asil hata: non-PIE ikili ld.so'ya verilirse segfault olur
-	[ "$(aify_glibc_mode "$AIFY_HOME/nonpie.bin")" = direct ] \
-		&& ok "non-PIE ikili dogrudan calistiriliyor (ld.so'ya verilmiyor)" \
+	# Yorumlayici program basligindan okunmali: yol /lib ile baslamayabilir
+	# (patchelf yamasi sonrasi $PREFIX/glibc/lib/... olur) ve .interp dosyanin
+	# ortasina tasinmis olabilir - dize taramasi bunu kaciriyordu.
+	interp_out="$(_aify_elf_interp /bin/ls 2>/dev/null || true)"
+	case "$interp_out" in
+		*ld-linux*|*ld-musl*) ok "PT_INTERP program basligindan okunuyor: $interp_out" ;;
+		*) bad "PT_INTERP okunamadi: '$interp_out'" ;;
+	esac
+	[ "$(aify_binary_class /bin/ls)" = glibc ] && ok "/bin/ls glibc olarak siniflandi" || bad "siniflandirma yanlis"
+	# 10b) Asil hata: non-PIE ikili ld.so'ya verilirse segfault olur.
+	#      Yamalamak yerine proot'a yonlendiriyoruz.
+	[ "$(aify_glibc_mode "$AIFY_HOME/nonpie.bin")" = proot ] \
+		&& ok "non-PIE ikili ld.so'ya verilmiyor (proot'a yonleniyor)" \
 		|| bad "non-PIE hala ld.so'ya veriliyor - segfault geri gelir"
 	[ "$(aify_glibc_mode "$AIFY_HOME/pie.bin")" = grun ] \
 		&& ok "PIE ikili ld.so modunda calisiyor" || bad "PIE yonlendirmesi yanlis"
+	[ "$(aify_runtime_backend "$AIFY_HOME/nonpie.bin" glibc)" = proot ] \
+		&& ok "non-PIE glibc ikilisi icin arka uc proot" || bad "arka uc secimi yanlis"
+	[ "$(aify_runtime_backend "$AIFY_HOME/pie.bin" glibc)" = glibc ] \
+		&& ok "PIE glibc ikilisi icin arka uc glibc" || bad "PIE arka uc secimi yanlis"
 	printf '#!/bin/sh\n' > "$AIFY_HOME/duz.sh"
 	[ "$(aify_elf_type "$AIFY_HOME/duz.sh")" = none ] && ok "ELF olmayan dosya 'none'" || bad "ELF olmayan tespiti"
 else

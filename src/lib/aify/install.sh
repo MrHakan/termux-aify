@@ -149,6 +149,13 @@ _aify_install_pkg() {
 _aify_install_installer_native() {
 	local tdir="$1"
 	mkdir -p "$tdir/bin"
+	# Resmi kurulum betikleri ikili varsa "zaten kurulu" deyip cikar; boylece
+	# 'aify install' bir sey tazelemez. Kendi kurulum dizinimiz oldugu icin
+	# eskisini silip temiz indirme yaptiriyoruz.
+	if [ -e "$tdir/bin/$TOOL_BIN" ]; then
+		aify_step "eski ikili siliniyor (temiz kurulum icin)"
+		rm -f "$tdir/bin/$TOOL_BIN"
+	fi
 	aify_step "resmi kurulum betigi indiriliyor: $TOOL_INSTALLER_URL"
 	local script="$AIFY_CACHE_DIR/$TOOL_ID-install.sh"
 	aify_download "$TOOL_INSTALLER_URL" "$script" || aify_die "kurulum betigi indirilemedi"
@@ -319,10 +326,21 @@ _aify_install_one() {
 			# betik/statik -> native. Tek yonlu duzeltme, npm sarmalayicisini
 			# grun'a verip "invalid ELF header" almaya yol aciyordu.
 			local want pinned
-			want="$(aify_class_backend "$class")"
+			want="$(aify_runtime_backend "$binpath" "$class")"
 			pinned="$(aify_config_get "tool.$id.backend" '')"
 			if [ -n "$pinned" ]; then
 				[ "$pinned" != "$want" ] && aify_warn "arka uc ayarla '$pinned' olarak sabitlenmis, ikili ise $want istiyor"
+			elif [ "$want" = proot ] && [ "$backend" != proot ] && [ "$class" = glibc ]; then
+				aify_warn "non-PIE glibc ikilisi: dinamik yukleyici bunu yukleyemez"
+				if aify_backend_available proot; then
+					aify_info "$TOOL_NAME proot kabina kuruluyor"
+					rm -rf "${AIFY_TOOLS_DIR:?}/$id"
+					_aify_install_one "$id" proot
+					return $?
+				fi
+				aify_warn "bu arac proot gerektiriyor:"
+				aify_warn "  aify backend setup proot && aify install $id --backend proot"
+				backend=proot
 			elif [ "$want" != "$backend" ]; then
 				if [ "$want" = native ]; then
 					aify_warn "ikili yerli calisiyor, arka uc '$backend' yerine 'native'"
@@ -333,18 +351,7 @@ _aify_install_one() {
 				fi
 				backend="$want"
 			fi
-			if [ "$backend" = glibc ]; then
-				[ -x "$binpath" ] || chmod +x "$binpath" 2>/dev/null || true
-				if aify_glibc_configure "$binpath"; then
-					aify_step "glibc yukleyicisi yamalandi (patchelf)"
-				elif [ "$(aify_elf_type "$binpath")" = exec ]; then
-					# non-PIE bir ikili yamasiz calistirilamaz: ld.so onu
-					# yukleyemez, dogrudan calistirmak da bionic yukleyicisine
-					# duser. Tek secenek proot.
-					aify_warn "yama basarisiz ve ikili non-PIE; bu arac icin proot gerekiyor:"
-					aify_warn "  aify install $id --backend proot"
-				fi
-			fi
+			[ -x "$binpath" ] || chmod +x "$binpath" 2>/dev/null || true
 			;;
 	esac
 
