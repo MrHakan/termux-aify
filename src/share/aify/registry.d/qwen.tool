@@ -1,0 +1,13 @@
+TOOL_ID=qwen
+TOOL_NAME="Qwen Code"
+TOOL_SUMMARY="Qwen tabanli terminal kodlama ajani (Gemini CLI catallamasi)"
+TOOL_HOMEPAGE="https://github.com/QwenLM/qwen-code"
+TOOL_KIND=npm
+TOOL_PACKAGE="@qwen-code/qwen-code"
+TOOL_BIN=qwen
+TOOL_RUNTIME=node
+TOOL_BACKENDS="native proot"
+TOOL_DEPS="nodejs-lts"
+TOOL_TAGS="qwen alibaba agent"
+TOOL_AUTH="qwen icinde /auth ; OPENAI_API_KEY uyumlu saglayicilar da olur"
+TOOL_NOTES="Saf JavaScript; Termux'ta dogrudan calisir."

@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: make lint
+
+      - name: testler
+        run: make check
+
+      - name: .deb uret
+        run: make deb
+
+      - name: paket icerigi
+        run: |
+          deb=$(ls dist/aify_*_all.deb)
+          dpkg-deb -I "$deb"
+          dpkg-deb -c "$deb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aify-deb
+          path: dist/*.deb
+          if-no-files-found: error

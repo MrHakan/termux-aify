@@ -1,0 +1,35 @@
+# bash completion for aify
+_aify_tool_ids() {
+	local d
+	for d in "${AIFY_SHAREDIR:-$PREFIX/share/aify}/registry.d" "${AIFY_HOME:-$HOME/.aify}/registry.d"; do
+		[ -d "$d" ] || continue
+		for f in "$d"/*.tool; do [ -e "$f" ] && basename "$f" .tool; done
+	done | sort -u
+}
+
+_aify() {
+	local cur prev cmds
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+	prev="${COMP_WORDS[COMP_CWORD-1]}"
+	cmds="setup list info install remove update run backend add-npm add-pkg add-gh registry config env doctor version help"
+
+	if [ "$COMP_CWORD" -eq 1 ]; then
+		mapfile -t COMPREPLY < <(compgen -W "$cmds $(_aify_tool_ids)" -- "$cur")
+		return
+	fi
+
+	case "${COMP_WORDS[1]}" in
+		install|i|add|remove|rm|uninstall|update|upgrade|run|exec|info|show)
+			if [ "$prev" = "--backend" ] || [ "$prev" = "-b" ]; then
+				mapfile -t COMPREPLY < <(compgen -W "native glibc proot" -- "$cur")
+			else
+				mapfile -t COMPREPLY < <(compgen -W "$(_aify_tool_ids) --backend --yes" -- "$cur")
+			fi
+			;;
+		backend)  mapfile -t COMPREPLY < <(compgen -W "status setup native glibc proot" -- "$cur") ;;
+		config)   mapfile -t COMPREPLY < <(compgen -W "get set list unset" -- "$cur") ;;
+		registry) mapfile -t COMPREPLY < <(compgen -W "list path" -- "$cur") ;;
+	esac
+}
+complete -F _aify aify

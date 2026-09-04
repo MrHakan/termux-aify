@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# aify - Termux icin yapay zeka CLI yoneticisi
+# https://github.com/MrHakan/termux-aify
+set -euo pipefail
+
+# --- Kendini bul (hem repo icinden hem kurulu halde calisir) -----------------
+_aify_self() {
+	local src="${BASH_SOURCE[0]}" dir
+	while [ -L "$src" ]; do
+		dir="$(cd -P "$(dirname "$src")" && pwd)"
+		src="$(readlink "$src")"
+		case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+	done
+	printf '%s/%s\n' "$(cd -P "$(dirname "$src")" && pwd)" "$(basename "$src")"
+}
+AIFY_SELF="$(_aify_self)"
+AIFY_ROOT="$(dirname "$(dirname "$AIFY_SELF")")"
+AIFY_LIBDIR="${AIFY_LIBDIR:-$AIFY_ROOT/lib/aify}"
+AIFY_SHAREDIR="${AIFY_SHAREDIR:-$AIFY_ROOT/share/aify}"
+export AIFY_SELF AIFY_LIBDIR AIFY_SHAREDIR
+
+if [ ! -d "$AIFY_LIBDIR" ]; then
+	printf 'hata: aify kutuphaneleri bulunamadi (%s)\n' "$AIFY_LIBDIR" >&2
+	exit 1
+fi
+
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/core.sh"
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/registry.sh"
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/backend.sh"
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/install.sh"
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/custom.sh"
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/run.sh"
+# shellcheck source=/dev/null
+. "$AIFY_LIBDIR/doctor.sh"
+
+aify_usage() {
+	cat <<'USAGE'
+aify - Termux icin yapay zeka CLI yoneticisi
+
+KULLANIM
+  aify <komut> [secenekler]
+
+KOMUTLAR
+  setup                 Ilk kurulum: dizinler, temel paketler, PATH
+  list                  Bilinen araclari ve kurulum durumunu listeler
+  info <id>             Arac hakkinda ayrinti
+  install <id>...       Arac kurar        (--backend native|glibc|proot)
+  remove <id>...        Arac kaldirir
+  update [<id>...]      Kurulu araclari gunceller (varsayilan: hepsi)
+  run <id> [arg...]     Araci dogru arka uc ile calistirir
+  <id> [arg...]         'aify run <id>' kisayolu
+  backend status        Arka uclarin durumu
+  backend setup <ad>    glibc | proot arka ucunu hazirlar
+  add-npm <paket>       Herhangi bir npm CLI'sini kayda ekler (--id, --bin)
+  add-pkg <paket>       Herhangi bir Termux paketini kayda ekler
+  add-gh <user/repo>    GitHub surumlerinden ikili indiren kayit ekler
+  registry list         Kayit dosyalarini gosterir
+  config <get|set|list|unset>
+  env                   PATH satirlarini yazdirir (eval "$(aify env)")
+  doctor                Ortam teshisi
+  version               Surum
+
+ORNEKLER
+  aify setup
+  aify install gemini codex
+  aify install claude --backend glibc
+  aify codex "bu repoda testleri calistir"
+  aify doctor
+
+Ortam: AIFY_HOME (varsayilan ~/.aify), AIFY_YES=1, AIFY_DEBUG=1, NO_COLOR
+USAGE
+}
+
+aify_cmd_setup() {
+	aify_info "aify ilk kurulum"
+	aify_ensure_dirs
+	aify_ok "dizinler hazir: $AIFY_HOME"
+	if aify_is_termux; then
+		aify_ensure_deps "curl git"
+		if ! aify_have node; then
+			if aify_confirm "Node.js (nodejs-lts) kurulsun mu? npm tabanli araclar icin gerekli"; then
+				aify_ensure_deps "nodejs-lts"
+			fi
+		fi
+		if ! aify_have rg; then
+			aify_confirm "ripgrep kurulsun mu? (kod arama icin onerilir)" && aify_ensure_deps "ripgrep"
+		fi
+	else
+		aify_warn "Termux disindasiniz; paket kurulumlari atlandi"
+	fi
+	case ":$PATH:" in
+		*":$AIFY_BIN_DIR:"*) aify_ok "PATH hazir" ;;
+		*)
+			aify_warn "Bu oturumda PATH icin:  eval \"\$(aify env)\""
+			aify_say "  Kalici: yeni Termux oturumlari $AIFY_PREFIX/etc/profile.d/aify.sh dosyasini otomatik yukler."
+			;;
+	esac
+	aify_say ""
+	aify_say "Siradaki adim:  ${C_BOLD}aify list${C_RESET}   sonra  ${C_BOLD}aify install <id>${C_RESET}"
+}
+
+aify_cmd_config() {
+	case "${1:-list}" in
+		get)   [ -n "${2:-}" ] || aify_die "kullanim: aify config get <anahtar>"; aify_config_get "$2" ;;
+		set)   [ -n "${3:-}" ] || aify_die "kullanim: aify config set <anahtar> <deger>"; aify_config_set "$2" "$3"; aify_ok "$2=$3" ;;
+		unset) [ -n "${2:-}" ] || aify_die "kullanim: aify config unset <anahtar>"; aify_config_unset "$2"; aify_ok "$2 silindi" ;;
+		list|'') aify_config_list ;;
+		*) aify_die "bilinmeyen config komutu: $1" ;;
+	esac
+}
+
+aify_cmd_registry() {
+	case "${1:-list}" in
+		list|'')
+			local d
+			while read -r d; do
+				[ -d "$d" ] || continue
+				printf '%s%s%s\n' "$C_BOLD" "$d" "$C_RESET"
+				find "$d" -maxdepth 1 -name '*.tool' -printf '  %f\n' 2>/dev/null | sort || true
+			done < <(aify_registry_dirs)
+			;;
+		path) aify_tool_file "${2:?kullanim: aify registry path <id>}" ;;
+		*) aify_die "bilinmeyen registry komutu: $1" ;;
+	esac
+}
+
+main() {
+	local cmd="${1:-help}"
+	[ $# -gt 0 ] && shift || true
+	case "$cmd" in
+		-h|--help|help)       aify_usage ;;
+		-v|--version|version) printf 'aify %s\n' "$AIFY_VERSION" ;;
+		setup)                aify_cmd_setup "$@" ;;
+		list|ls)              aify_cmd_list "$@" ;;
+		info|show)            aify_cmd_info "$@" ;;
+		install|add|i)        aify_cmd_install "$@" ;;
+		remove|rm|uninstall)  aify_cmd_remove "$@" ;;
+		update|upgrade)       aify_cmd_update "$@" ;;
+		run|exec)             aify_cmd_run "$@" ;;
+		backend)
+			case "${1:-status}" in
+				status|'') aify_backend_status ;;
+				setup)     shift; aify_backend_setup "${1:-}" ;;
+				*)         aify_die "kullanim: aify backend <status|setup>" ;;
+			esac
+			;;
+		add-npm)              aify_cmd_add_npm "$@" ;;
+		add-pkg)              aify_cmd_add_pkg "$@" ;;
+		add-gh)               aify_cmd_add_gh "$@" ;;
+		registry)             aify_cmd_registry "$@" ;;
+		config)               aify_cmd_config "$@" ;;
+		env)                  aify_cmd_env "$@" ;;
+		doctor|check)         aify_cmd_doctor "$@" ;;
+		*)
+			if aify_tool_exists "$cmd"; then
+				aify_cmd_run "$cmd" "$@"
+			else
+				aify_err "bilinmeyen komut: $cmd"
+				aify_usage
+				exit 1
+			fi
+			;;
+	esac
+}
+
+main "$@"

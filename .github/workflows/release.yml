@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: make lint && make check
+
+      - id: ver
+        run: echo "version=$(make -s version)" >> "$GITHUB_OUTPUT"
+
+      - run: make deb
+
+      - name: apt deposu olustur (GitHub Pages icin)
+        run: |
+          set -eux
+          deb=$(ls dist/aify_*_all.deb)
+          mkdir -p site/pool/main/a/aify
+          cp "$deb" site/pool/main/a/aify/
+          cd site
+          # Termux'un apt'si mimariye ozel indeks arar; hepsine ayni listeyi koyuyoruz
+          for arch in all aarch64 arm i686 x86_64; do
+            mkdir -p "dists/aify/main/binary-$arch"
+            dpkg-scanpackages --multiversion pool /dev/null > "dists/aify/main/binary-$arch/Packages"
+            gzip -9c "dists/aify/main/binary-$arch/Packages" > "dists/aify/main/binary-$arch/Packages.gz"
+          done
+          cat > dists/aify/Release <<REL
+          Origin: termux-aify
+          Label: aify
+          Suite: aify
+          Codename: aify
+          Architectures: all aarch64 arm i686 x86_64
+          Components: main
+          Description: aify - Termux yapay zeka CLI yoneticisi
+          Date: $(date -Ru)
+          REL
+          cat > index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>aify apt deposu</title>
+          <body style="font-family:system-ui;max-width:40rem;margin:3rem auto;padding:0 1rem">
+          <h1>aify apt deposu</h1>
+          <p>Termux'ta:</p>
+          <pre>echo "deb [trusted=yes] https://mrhakan.github.io/termux-aify aify main" \
+  > $PREFIX/etc/apt/sources.list.d/aify.list
+pkg update &amp;&amp; pkg install aify</pre>
+          </body>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: surum yayinla
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.deb
+          generate_release_notes: true
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
