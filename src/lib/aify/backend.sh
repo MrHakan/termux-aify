@@ -57,6 +57,7 @@ _aify_setup_glibc() {
 	apt update -y >/dev/null 2>&1 || true
 	aify_step "pkg install glibc-runner patchelf"
 	pkg install -y glibc-runner patchelf || aify_die "glibc-runner kurulamadi"
+	aify_glibc_write_etc || aify_warn "glibc /etc dosyalari yazilamadi"
 	aify_backend_available glibc && aify_ok "glibc arka ucu hazir"
 	return 0
 }
@@ -114,6 +115,58 @@ _aify_node_lts_version() {
 		| tr '}' '\n' | grep '"lts":"[A-Za-z]' | head -n1 \
 		| sed -n 's/.*"version":"\(v[0-9.]*\)".*/\1/p')"
 	printf '%s\n' "${v:-v22.22.0}"
+}
+
+# Termux'un glibc'i /etc yerine $PREFIX/glibc/etc okur (libc.so.6 icindeki
+# yollar boyle yamalidir), ancak glibc paketi resolv.conf/nsswitch.conf/hosts
+# gondermez. Bunlar olmadan getaddrinfo 127.0.0.1'e dusup DNS'i basarisiz kilar
+# - Antigravity CLI'nin "token exchange failed" hatasinin sebebi budur.
+aify_glibc_etc_dir() { printf '%s/glibc/etc\n' "$AIFY_PREFIX"; }
+
+aify_glibc_nameservers() {
+	local ns='' p v
+	# Once Android'in kendi DNS'i (Android 9+ genelde bos birakir)
+	if aify_have getprop; then
+		for p in net.dns1 net.dns2; do
+			v="$(getprop "$p" 2>/dev/null)"
+			case "$v" in ''|0.0.0.0) ;; *) ns="${ns:+$ns }$v" ;; esac
+		done
+	fi
+	[ -n "$ns" ] || ns="$(aify_config_get glibc.dns '1.1.1.1 8.8.8.8')"
+	printf '%s\n' "$ns"
+}
+
+aify_glibc_write_etc() {
+	local etc ns n
+	etc="$(aify_glibc_etc_dir)"
+	[ -d "$AIFY_PREFIX/glibc" ] || return 1
+	mkdir -p "$etc" 2>/dev/null || return 1
+
+	ns="$(aify_glibc_nameservers)"
+	{
+		printf '# aify tarafindan uretildi - glibc ikilileri icin DNS\n'
+		for n in $ns; do printf 'nameserver %s\n' "$n"; done
+		printf 'options timeout:2 attempts:3\n'
+	} > "$etc/resolv.conf" || return 1
+
+	[ -f "$etc/nsswitch.conf" ] || cat > "$etc/nsswitch.conf" <<'NSS'
+# aify tarafindan uretildi
+passwd: files
+group: files
+shadow: files
+hosts: files dns
+networks: files
+protocols: files
+services: files
+NSS
+
+	[ -f "$etc/hosts" ] || cat > "$etc/hosts" <<'HOSTS'
+127.0.0.1 localhost
+::1 localhost ip6-localhost ip6-loopback
+HOSTS
+
+	aify_step "glibc ag ayarlari: $etc/resolv.conf (${ns// /, })"
+	return 0
 }
 
 # --- Calistirma --------------------------------------------------------------

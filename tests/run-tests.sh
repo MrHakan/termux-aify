@@ -37,7 +37,7 @@ contains "aify version" "aify 0." "$AIFY" version
 contains "aify help" "KOMUTLAR" "$AIFY" help
 contains "aify list claude iceriyor" "claude" "$AIFY" list
 contains "aify list codex iceriyor" "codex" "$AIFY" list
-contains "aify list gh iceriyor" "gh" "$AIFY" list
+contains "aify list copilot iceriyor" "copilot" "$AIFY" list
 contains "aify info codex paketi gosteriyor" "@openai/codex" "$AIFY" info codex
 contains "aify info bilinmeyen hata veriyor" "bilinmeyen arac" "$AIFY" info yok-boyle-bir-sey
 contains "aify backend status" "native" "$AIFY" backend status
@@ -133,7 +133,56 @@ case "$res" in
 	*) bad "ic ice paket bulunamadi: $res" ;;
 esac
 
-head_ "9. glibc ikilisinde arka uc otomatik degisiyor"
+head_ "9. copilot hatasi: ic ice platform paketi + arka uc yonu"
+# 9a) Acik TOOL_NATIVE_BINARY varken, npm platform paketini ic ice birakirsa
+#     (copilot/codex boyle yapiyor) sarmalayici degil yerli ikili secilmeli.
+nest2="$AIFY_HOME/nested2"
+plat="$nest2/lib/node_modules/@github/copilot/node_modules/@github/copilot-linux-$(aify_npm_cpu)"
+mkdir -p "$nest2/bin" "$plat"
+printf '#!/usr/bin/env node\n// npm-loader: gecerli bir betik, stub degil\nconsole.log("wrapper");\n' > "$nest2/bin/copilot"
+chmod +x "$nest2/bin/copilot"
+cp /bin/ls "$plat/copilot" 2>/dev/null || printf '#!/bin/sh\necho yerli\n' > "$plat/copilot"
+chmod +x "$plat/copilot"
+res="$(_aify_resolve_binary "$nest2" copilot "lib/node_modules/@github/copilot-linux-$(aify_npm_cpu)/copilot" || true)"
+case "$res" in
+	*node_modules/@github/copilot-linux-*) ok "ic ice platform ikilisi sarmalayiciya tercih edildi" ;;
+	*) bad "sarmalayici secildi (copilot hatasi geri geldi): $res" ;;
+esac
+# Acik tanimi olmayan araclarda sarmalayici hala kazanmali (codex boyle calisiyor)
+res="$(_aify_resolve_binary "$nest2" copilot "" || true)"
+[ "$res" = "$nest2/bin/copilot" ] && ok "acik tanim yoksa gecerli sarmalayici korunuyor" \
+	|| bad "sarmalayici korunmadi: $res"
+
+# 9b) glibc isteyen bir kayit, betik ikili ile kurulunca arka uc native olmali
+mkdir -p "$AIFY_HOME/registry.d"
+cat > "$AIFY_HOME/registry.d/betikaraci.tool" <<'TOOL'
+TOOL_ID=betikaraci
+TOOL_NAME="Betik Araci"
+TOOL_KIND=github
+TOOL_GH_REPO="test/betikaraci"
+TOOL_BIN=betikaraci
+TOOL_BACKENDS="glibc proot"
+TOOL_DEPS=""
+TOOL
+mkdir -p "$AIFY_HOME/betikfake"
+printf '#!/bin/sh\necho "betik 1.0"\n' > "$AIFY_HOME/betikfake/betikaraci"
+chmod +x "$AIFY_HOME/betikfake/betikaraci"
+tar -czf "$AIFY_HOME/betikaraci.tar.gz" -C "$AIFY_HOME/betikfake" betikaraci
+AIFY_TEST_ASSET_URL="file://$AIFY_HOME/betikaraci.tar.gz" "$AIFY" install betikaraci >/dev/null 2>&1
+if grep -q '^backend=native' "$AIFY_HOME/state/betikaraci" 2>/dev/null; then
+	ok "betik ikili icin arka uc glibc -> native duzeltildi"
+else
+	bad "arka uc duzeltilmedi: $(grep '^backend=' "$AIFY_HOME/state/betikaraci" 2>/dev/null)"
+fi
+contains "duzeltilen arac calisiyor" "betik 1.0" "$AIFY" run betikaraci
+# 9c) State bozuksa bile calistirma yolu ELF olmayani grun'a vermemeli
+sed -i 's/^backend=native/backend=glibc/' "$AIFY_HOME/state/betikaraci" 2>/dev/null
+contains "bozuk state'te bile yerli calistiriliyor" "betik 1.0" "$AIFY" run betikaraci
+"$AIFY" remove betikaraci >/dev/null 2>&1
+rm -f "$AIFY_HOME/registry.d/betikaraci.tool"
+
+
+head_ "10. glibc ikilisinde arka uc otomatik degisiyor"
 if [ "$(aify_binary_class /bin/ls)" = glibc ]; then
 	glibcdir="$AIFY_HOME/glibctest"; mkdir -p "$glibcdir"
 	cp /bin/ls "$glibcdir/sahte"
@@ -150,7 +199,7 @@ else
 	printf '  atlandi (bu makinede /bin/ls glibc degil)\n'
 fi
 
-head_ "10. Paketleme"
+head_ "11. Paketleme"
 if command -v dpkg-deb >/dev/null 2>&1 || command -v ar >/dev/null 2>&1; then
 	OUT_DIR="$AIFY_HOME/dist" BUILD_DIR="$AIFY_HOME/build" "$ROOT/packaging/build-deb.sh" >/dev/null 2>&1
 	deb="$(ls "$AIFY_HOME"/dist/aify_*_all.deb 2>/dev/null | head -n1)"
@@ -170,7 +219,7 @@ else
 	printf '  atlandi (dpkg-deb/ar yok)\n'
 fi
 
-head_ "11. apt deposu"
+head_ "12. apt deposu"
 if command -v dpkg-scanpackages >/dev/null 2>&1; then
 	site="$AIFY_HOME/site"
 	deb2="$(ls "$AIFY_HOME"/dist/aify_*_all.deb 2>/dev/null | head -n1)"
@@ -196,7 +245,7 @@ else
 	printf '  atlandi (dpkg-scanpackages yok)\n'
 fi
 
-head_ "12. Etkilesimli arayuz"
+head_ "13. Etkilesimli arayuz"
 contains "aify banner logoyu yaziyor" "aify" "$AIFY" banner
 contains "TTY yokken bare aify yardim veriyor" "KOMUTLAR" "$AIFY"
 if command -v python3 >/dev/null 2>&1; then
@@ -226,7 +275,7 @@ else
 	printf '  atlandi (python3 yok)\n'
 fi
 
-head_ "13. make install / uninstall"
+head_ "14. make install / uninstall"
 stage="$AIFY_HOME/stage"
 check "make install" make -s -C "$ROOT" install DESTDIR="$stage" PREFIX=/usr
 check "kurulan aify calisiyor" test -x "$stage/usr/bin/aify"

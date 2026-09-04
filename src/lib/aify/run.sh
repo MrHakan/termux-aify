@@ -14,6 +14,20 @@ _aify_export_tool_env() {
 	return 0
 }
 
+# glibc ikilileri Android'in /etc'sini goremez:
+#  - Go'nun crypto/x509'u /etc/ssl/... arar  -> SSL_CERT_FILE ile Termux demeti
+#  - getaddrinfo $PREFIX/glibc/etc/resolv.conf okur -> yoksa uretiriz
+_aify_glibc_runtime_env() {
+	if [ -z "${SSL_CERT_FILE:-}" ] && [ -f "$AIFY_PREFIX/etc/tls/cert.pem" ]; then
+		export SSL_CERT_FILE="$AIFY_PREFIX/etc/tls/cert.pem"
+	fi
+	if [ -z "${SSL_CERT_DIR:-}" ] && [ -d "$AIFY_PREFIX/etc/tls" ]; then
+		export SSL_CERT_DIR="$AIFY_PREFIX/etc/tls"
+	fi
+	[ -f "$(aify_glibc_etc_dir)/resolv.conf" ] || aify_glibc_write_etc >/dev/null 2>&1 || true
+	return 0
+}
+
 aify_cmd_run() {
 	local id="${1:-}"
 	[ -n "$id" ] || aify_die "kullanim: aify run <id> [arg...]"
@@ -35,6 +49,7 @@ aify_cmd_run() {
 	tdir="$AIFY_TOOLS_DIR/$id"
 
 	_aify_export_tool_env
+	[ "$backend" = glibc ] && _aify_glibc_runtime_env
 	export PATH="$tdir/bin:$PATH"
 	[ -d "$AIFY_BIN_DIR" ] && export PATH="$AIFY_BIN_DIR:$PATH"
 
@@ -44,8 +59,14 @@ aify_cmd_run() {
 			exec "$path" "$@"
 			;;
 		glibc)
-			aify_backend_available glibc || aify_die "glibc arka ucu yok: aify backend setup glibc"
 			[ -f "$path" ] || aify_die "$path bulunamadi - 'aify install $id' ile yenileyin"
+			# Betik/statik bir dosyayi dinamik yukleyiciye vermek
+			# "invalid ELF header" ile patlar; boyle bir durumda yerli calistir.
+			if ! aify_is_elf "$path"; then
+				aify_warn "$id yerli calisiyor (glibc arka ucu gerekmiyor); kaydi tazelemek icin: aify install $id"
+				exec "$path" "$@"
+			fi
+			aify_backend_available glibc || aify_die "glibc arka ucu yok: aify backend setup glibc"
 			local runner=grun
 			aify_have grun || runner=glibc-runner
 			exec "$runner" "$path" "$@"

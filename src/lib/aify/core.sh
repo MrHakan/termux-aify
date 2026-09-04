@@ -4,7 +4,7 @@
 
 # Bu degiskenler diger lib dosyalarinda ve bin/aify icinde kullanilir.
 # shellcheck disable=SC2034
-AIFY_VERSION="0.1.0"
+AIFY_VERSION="0.2.0"
 
 # --- Yollar -----------------------------------------------------------------
 AIFY_PREFIX="${PREFIX:-/usr}"
@@ -158,7 +158,11 @@ aify_binary_class() {
 	if aify_have readelf; then
 		interp="$(readelf -l "$f" 2>/dev/null | sed -n 's/.*\[Requesting program interpreter: \([^]]*\)\]/\1/p' | head -n1)"
 	else
-		interp="$(LC_ALL=C grep -a -m1 -o -E '/(lib|system|apex)[^ ]*/ld-?[A-Za-z0-9._-]*\.so[0-9.]*' "$f" 2>/dev/null | head -n1)"
+		# .interp her zaman dosyanin basindadir; 64K'dan otesini taramak
+		# yuzlerce MB'lik ikililerde bosuna zaman kaybi olur.
+		interp="$(head -c 65536 "$f" 2>/dev/null \
+			| LC_ALL=C grep -a -m1 -o -E '/(lib|system|apex)[^ ]*/ld-?[A-Za-z0-9._-]*\.so[0-9.]*' \
+			| head -n1)"
 	fi
 
 	case "$interp" in
@@ -168,6 +172,12 @@ aify_binary_class() {
 		*linker*)      echo static ;;   # bionic linker: zaten Termux yerlisi
 		*)             echo unknown ;;
 	esac
+}
+
+# Dosya ELF mi? (O(1) - calistirma yolunda tam siniflandirma pahali olurdu)
+aify_is_elf() {
+	[ -f "$1" ] || return 1
+	[ "$(head -c 4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]
 }
 
 # Sinifa gore onerilen backend

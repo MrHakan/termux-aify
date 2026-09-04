@@ -49,6 +49,16 @@ aify_cmd_doctor() {
 		if aify_backend_available "$b"; then _d_ok "$b hazir"
 		else printf '  %s[ ]%s    %s hazir degil  (aify backend setup %s)\n' "$C_DIM" "$C_RESET" "$b" "$b"; fi
 	done
+	if aify_backend_available glibc; then
+		# glibc /etc yoksa DNS calismaz (Antigravity/Go ikilileri buna takilir)
+		if [ -f "$(aify_glibc_etc_dir)/resolv.conf" ]; then
+			_d_ok "glibc DNS ayarli ($(aify_glibc_etc_dir)/resolv.conf)"
+		else
+			_d_bad "glibc DNS ayarsiz - ag hatalari verir: aify backend setup glibc"
+		fi
+		if [ -f "$AIFY_PREFIX/etc/tls/cert.pem" ]; then _d_ok "CA demeti bulundu (SSL_CERT_FILE)"
+		else _d_warn "ca-certificates yok; glibc ikilileri TLS hatasi verebilir (pkg install ca-certificates)"; fi
+	fi
 
 	_d_head "PATH"
 	case ":$PATH:" in
@@ -75,6 +85,9 @@ aify_cmd_doctor() {
 			if [ "$now" = "$class" ]; then _d_ok "$id [$backend] $path"
 			else _d_warn "$id ikilisi degismis ($class -> $now); 'aify install $id' onerilir"; fi
 			[ "$backend" = glibc ] && ! aify_backend_available glibc && _d_bad "$id glibc istiyor ama glibc-runner yok"
+			if [ "$backend" = glibc ] && ! aify_is_elf "$path"; then
+				_d_bad "$id: glibc arka ucuna ELF olmayan dosya kayitli - 'aify install $id' ile duzelir"
+			fi
 		else
 			_d_bad "$id: ikili kayip ($path) - 'aify install $id'"
 		fi

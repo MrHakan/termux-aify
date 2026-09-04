@@ -73,7 +73,7 @@ KOMUTLAR
 
 ORNEKLER
   aify setup
-  aify install gemini codex
+  aify install codex copilot
   aify install claude --backend glibc
   aify codex "bu repoda testleri calistir"
   aify doctor

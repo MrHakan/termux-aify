@@ -94,9 +94,11 @@ cat > index.html <<HTML
 <body style="font-family:system-ui,sans-serif;max-width:44rem;margin:3rem auto;padding:0 1rem;line-height:1.6">
 <h1>aify &mdash; Termux apt deposu</h1>
 <p>Termux'ta kurulum:</p>
-<pre style="background:#f4f4f5;padding:1rem;border-radius:.5rem;overflow-x:auto">echo "deb [trusted=yes] $BASE_URL $SUITE $COMPONENT" \\
+<pre style="background:#f4f4f5;padding:1rem;border-radius:.5rem;overflow-x:auto">mkdir -p \$PREFIX/etc/apt/sources.list.d
+echo "deb [trusted=yes] $BASE_URL $SUITE $COMPONENT" \\
   &gt; \$PREFIX/etc/apt/sources.list.d/aify.list
 pkg update &amp;&amp; pkg install aify</pre>
+<p style="color:#666">Termux does not ship <code>sources.list.d/</code>, so the <code>mkdir -p</code> is required.</p>
 <p>Kaynak kod: <a href="https://github.com/MrHakan/termux-aify">github.com/MrHakan/termux-aify</a></p>
 </body>
 HTML

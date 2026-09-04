@@ -29,8 +29,8 @@ Recommends: nodejs-lts, git, ripgrep
 Suggests: proot-distro, glibc-repo, gh, uv, unzip
 Homepage: https://github.com/MrHakan/termux-aify
 Description: Termux icin yapay zeka CLI yoneticisi
- aify; Claude Code, OpenAI Codex, Gemini CLI, Antigravity CLI (agy),
- GitHub CLI, opencode ve benzeri terminal yapay zeka araclarini Termux
+ aify; Claude Code, OpenAI Codex, GitHub Copilot CLI, Antigravity CLI (agy),
+ opencode ve benzeri terminal yapay zeka araclarini Termux
  uzerinde tek komutla kurar, gunceller ve dogru arka uc ile calistirir.
  .
  Yerli calisamayan (glibc/musl'a bagli) ikililer icin glibc-runner veya

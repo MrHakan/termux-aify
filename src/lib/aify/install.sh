@@ -55,10 +55,27 @@ _aify_is_stub() {
 	grep -qiE 'not installed|unsupported|placeholder|desteklenmiyor' "$f" 2>/dev/null
 }
 
-# npm, platform paketlerini bazen tepeye tasir bazen ic ice birakir; ikisini de
-# tarariz. Sirasiyla: acik tanim > gecerli sarmalayici > platform paketi ikilisi
+# npm, platform paketlerini bazen tepeye tasir bazen ic ice birakir
+# (@github/copilot ve @openai/codex ic ice birakiyor); ikisini de tarariz.
+_aify_scan_platform_binary() {
+	local tdir="$1" bin="$2" d f cpu
+	cpu="$(aify_npm_cpu)"
+	while read -r d; do
+		[ -d "$d" ] || continue
+		f="$(find "$d" -maxdepth 5 -type f -name "$bin" -perm -u+x 2>/dev/null | head -n1)"
+		[ -n "$f" ] || f="$(find "$d" -maxdepth 5 -type f -name "$bin" 2>/dev/null | head -n1)"
+		[ -n "$f" ] && { printf '%s\n' "$f"; return 0; }
+	done < <(find "$tdir/lib/node_modules" -maxdepth 6 -type d \
+		\( -name "*linux*$cpu*" -o -name "*linuxmusl*$cpu*" -o -name "*android*$cpu*" \) 2>/dev/null)
+	return 1
+}
+
+# Sirasiyla: acik tanim > (acik tanim varsa) platform paketi > gecerli
+# sarmalayici > platform paketi > ne bulursak.
+# Acik tanimi olan araclar yerli ikiliyi ISTIYOR demektir; npm sarmalayicisi
+# calisir gorunse bile (copilot'ta oldugu gibi) once ikiliyi ariyoruz.
 _aify_resolve_binary() {
-	local tdir="$1" bin="$2" glob="${3:-}" cand='' wrapper
+	local tdir="$1" bin="$2" glob="${3:-}" cand='' found='' wrapper
 	wrapper="$tdir/bin/$bin"
 
 	if [ -n "$glob" ]; then
@@ -66,6 +83,8 @@ _aify_resolve_binary() {
 		for cand in $(cd "$tdir" 2>/dev/null && eval ls -d $glob 2>/dev/null); do
 			[ -f "$tdir/$cand" ] && { printf '%s\n' "$tdir/$cand"; return 0; }
 		done
+		found="$(_aify_scan_platform_binary "$tdir" "$bin")" \
+			&& { printf '%s\n' "$found"; return 0; }
 	fi
 
 	if [ -f "$wrapper" ] && [ "$(aify_binary_class "$wrapper")" = script ] \
@@ -73,13 +92,8 @@ _aify_resolve_binary() {
 		printf '%s\n' "$wrapper"; return 0
 	fi
 
-	local d f cpu; cpu="$(aify_npm_cpu)"
-	while read -r d; do
-		[ -d "$d" ] || continue
-		f="$(find "$d" -maxdepth 5 -type f -name "$bin" -perm -u+x 2>/dev/null | head -n1)"
-		[ -n "$f" ] && { printf '%s\n' "$f"; return 0; }
-	done < <(find "$tdir/lib/node_modules" -maxdepth 6 -type d \
-		\( -name "*linux*$cpu*" -o -name "*linuxmusl*$cpu*" -o -name "*android*$cpu*" \) 2>/dev/null)
+	found="$(_aify_scan_platform_binary "$tdir" "$bin")" \
+		&& { printf '%s\n' "$found"; return 0; }
 
 	[ -e "$wrapper" ] && { printf '%s\n' "$wrapper"; return 0; }
 	return 1
@@ -252,12 +266,16 @@ _aify_install_one() {
 
 	aify_info "$TOOL_NAME kuruluyor  [arka uc: $backend]"
 
-	if ! aify_backend_available "$backend"; then
-		aify_warn "$backend arka ucu hazir degil"
-		if aify_confirm "Simdi kurulsun mu? (aify backend setup $backend)"; then
-			aify_backend_setup "$backend"
+	# proot kurulumun kendisini degistirir (paket kabin icine kurulur), bu yuzden
+	# onceden hazir olmali. glibc ise yalnizca calistirmayi etkiler: ikiliyi
+	# cozene kadar gercekten gerekip gerekmedigini bilemeyiz, o yuzden burada
+	# sart kosmuyoruz - gerekiyorsa kurulum sonrasi uyariyoruz.
+	if [ "$backend" = proot ] && ! aify_backend_available proot; then
+		aify_warn "proot arka ucu hazir degil"
+		if aify_confirm "Simdi kurulsun mu? (aify backend setup proot)"; then
+			aify_backend_setup proot
 		else
-			aify_die "$backend arka ucu olmadan $id kurulamaz"
+			aify_die "proot arka ucu olmadan $id kurulamaz"
 		fi
 	fi
 
@@ -297,15 +315,23 @@ _aify_install_one() {
 			esac
 			class="$(aify_binary_class "$binpath")"
 			aify_step "ikili: $binpath  [$(aify_human_class "$class")]"
-			local want; want="$(aify_class_backend "$class")"
-			if [ "$want" != native ] && [ "$backend" = native ]; then
-				if aify_backend_available "$want"; then
+			# Arka uc ikilinin sinifini takip etmeli: glibc ELF -> glibc,
+			# betik/statik -> native. Tek yonlu duzeltme, npm sarmalayicisini
+			# grun'a verip "invalid ELF header" almaya yol aciyordu.
+			local want pinned
+			want="$(aify_class_backend "$class")"
+			pinned="$(aify_config_get "tool.$id.backend" '')"
+			if [ -n "$pinned" ]; then
+				[ "$pinned" != "$want" ] && aify_warn "arka uc ayarla '$pinned' olarak sabitlenmis, ikili ise $want istiyor"
+			elif [ "$want" != "$backend" ]; then
+				if [ "$want" = native ]; then
+					aify_warn "ikili yerli calisiyor, arka uc '$backend' yerine 'native'"
+				elif aify_backend_available "$want"; then
 					aify_warn "yerli calistirilamaz, arka uc '$want' olarak degistiriliyor"
-					backend="$want"
 				else
 					aify_warn "bu ikili $want arka ucu gerektiriyor: aify backend setup $want"
-					backend="$want"
 				fi
+				backend="$want"
 			fi
 			if [ "$backend" = glibc ]; then aify_glibc_configure "$binpath" || true; fi
 			;;
