@@ -182,6 +182,10 @@ if command -v dpkg-scanpackages >/dev/null 2>&1; then
 		contains "Packages paketi listeliyor" "Package: aify" cat "$site/dists/aify/main/binary-aarch64/Packages"
 		contains "Filename havuzu gosteriyor" "pool/main/a/aify/aify_" cat "$site/dists/aify/main/binary-all/Packages"
 		check    ".deb havuzda" test -f "$site/pool/main/a/aify/$(basename "$deb2")"
+		# Goreli --out da calismali (is akisi boyle cagiriyor)
+		( cd "$AIFY_HOME" && "$ROOT/packaging/build-apt-repo.sh" --out relsite --deb "$deb2" >/dev/null 2>&1 ) \
+			&& [ -f "$AIFY_HOME/relsite/dists/aify/Release" ] \
+			&& ok "goreli --out ile de calisiyor" || bad "goreli --out basarisiz"
 		# Release icindeki karma degerleri gercekten dosyalarla eslesiyor mu?
 		( cd "$site/dists/aify" && awk '/^SHA256:/{f=1;next} /^[A-Za-z]/{f=0} f{print $1"  "$3}' Release | sha256sum -c --quiet ) \
 			&& ok "Release karma degerleri dogru" || bad "Release karma degerleri tutmuyor"

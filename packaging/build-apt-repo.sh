@@ -38,9 +38,12 @@ if [ -z "$DEB" ] || [ ! -f "$DEB" ]; then
 fi
 command -v dpkg-scanpackages >/dev/null 2>&1 || { echo "hata: dpkg-scanpackages gerekli (dpkg-dev)" >&2; exit 1; }
 
-echo "==> apt deposu: $OUT  (paket: $(basename "$DEB"))"
+DEB="$(cd "$(dirname "$DEB")" && pwd)/$(basename "$DEB")"
 rm -rf "$OUT"
 mkdir -p "$OUT/pool/$COMPONENT/a/aify"
+# Betik icinde 'cd' yapiliyor; goreli yol verilse de mutlak yola cevir.
+OUT="$(cd "$OUT" && pwd)"
+echo "==> apt deposu: $OUT  (paket: $(basename "$DEB"))"
 cp "$DEB" "$OUT/pool/$COMPONENT/a/aify/"
 
 cd "$OUT"
