@@ -189,7 +189,16 @@ _ui_key() {
 _ui_exec() {
 	_ui_leave
 	printf '\n%s%s aify %s%s\n\n' "$C_ACCENT$C_BOLD" "${UI_CUR:->}" "$*" "$C_RESET"
-	( main "$@" ) || true
+	local rc=0
+	( main "$@" ) || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		if [ "$rc" -ge 128 ]; then
+			printf '\n%skomut sinyal %s ile sonlandi (cikis %s)%s\n' "$C_RED" "$((rc-128))" "$rc" "$C_RESET"
+			printf '%saify doctor%s teshis icin yardimci olabilir\n' "$C_BOLD" "$C_RESET"
+		else
+			printf '\n%s(cikis kodu %s)%s\n' "$C_DIM" "$rc" "$C_RESET"
+		fi
+	fi
 	printf '\n%s[devam etmek icin Enter]%s ' "$C_DIM" "$C_RESET"
 	read -r _ || true
 	_ui_enter

@@ -24,6 +24,11 @@ _aify_glibc_runtime_env() {
 	if [ -z "${SSL_CERT_DIR:-}" ] && [ -d "$AIFY_PREFIX/etc/tls" ]; then
 		export SSL_CERT_DIR="$AIFY_PREFIX/etc/tls"
 	fi
+	# Go ikilileri (agy) icin: nsswitch.conf gormeyen Go, saf Go cozumleyicisini
+	# secip literal /etc/resolv.conf okur - Android'de o dosya yoktur ve
+	# glibc yamamiz Go'yu etkilemez. netdns=cgo, getaddrinfo'ya (yani bizim
+	# yazdigimiz $PREFIX/glibc/etc/resolv.conf'a) yonlendirir.
+	if [ -z "${GODEBUG:-}" ]; then export GODEBUG="netdns=cgo"; fi
 	[ -f "$(aify_glibc_etc_dir)/resolv.conf" ] || aify_glibc_write_etc >/dev/null 2>&1 || true
 	return 0
 }
@@ -67,9 +72,7 @@ aify_cmd_run() {
 				exec "$path" "$@"
 			fi
 			aify_backend_available glibc || aify_die "glibc arka ucu yok: aify backend setup glibc"
-			local runner=grun
-			aify_have grun || runner=glibc-runner
-			exec "$runner" "$path" "$@"
+			aify_glibc_exec "$path" "$@"
 			;;
 		proot)
 			aify_backend_available proot || aify_die "proot arka ucu yok: aify backend setup proot"

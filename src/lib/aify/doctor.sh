@@ -58,6 +58,28 @@ aify_cmd_doctor() {
 		fi
 		if [ -f "$AIFY_PREFIX/etc/tls/cert.pem" ]; then _d_ok "CA demeti bulundu (SSL_CERT_FILE)"
 		else _d_warn "ca-certificates yok; glibc ikilileri TLS hatasi verebilir (pkg install ca-certificates)"; fi
+		# Ayirt edici teshis: Termux'un kendi (bionic) agi calisiyor mu?
+		# bionic OK + glibc FAIL  -> sorun glibc'in /etc'sinde (bizim alanimiz)
+		# ikisi de FAIL           -> telefonun agi/DNS'i
+		if [ -z "${AIFY_SKIP_NET:-}" ] && aify_have curl; then
+			local code
+			code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 \
+				https://oauth2.googleapis.com/token 2>/dev/null || echo 000)"
+			if [ "$code" != "000" ]; then _d_ok "Termux (bionic) agi calisiyor - oauth2.googleapis.com HTTP $code"
+			else _d_bad "Termux'un kendi agi da erisemiyor; sorun glibc'te degil (veri/wifi, VPN, DNS engeli?)"; fi
+		fi
+		if [ -n "${AIFY_SKIP_NET:-}" ]; then
+			printf '  %s[ ]%s    glibc ad cozumleme testi atlandi (AIFY_SKIP_NET)\n' "$C_DIM" "$C_RESET"
+		else
+			local dns
+			if dns="$(aify_glibc_dns_test 2>&1)"; then
+				_d_ok "glibc ad cozumleme calisiyor: $dns"
+			else
+				_d_bad "glibc ad cozumleme BASARISIZ: $dns"
+				printf '       %saify backend setup glibc%s ile resolv.conf yazin;\n' "$C_BOLD" "$C_RESET"
+				printf '       kendi DNS'"'"'inizi vermek icin: %saify config set glibc.dns "1.1.1.1 8.8.8.8"%s\n' "$C_BOLD" "$C_RESET"
+			fi
+		fi
 	fi
 
 	_d_head "PATH"
@@ -87,6 +109,10 @@ aify_cmd_doctor() {
 			[ "$backend" = glibc ] && ! aify_backend_available glibc && _d_bad "$id glibc istiyor ama glibc-runner yok"
 			if [ "$backend" = glibc ] && ! aify_is_elf "$path"; then
 				_d_bad "$id: glibc arka ucuna ELF olmayan dosya kayitli - 'aify install $id' ile duzelir"
+			fi
+			if [ "$backend" = glibc ] && [ "$(aify_binary_class "$path")" = glibc ] \
+				&& [ "$(aify_elf_type "$path")" = exec ]; then
+				printf '       %snon-PIE ikili: dinamik yukleyici yerine dogrudan calistiriliyor%s\n' "$C_DIM" "$C_RESET"
 			fi
 		else
 			_d_bad "$id: ikili kayip ($path) - 'aify install $id'"

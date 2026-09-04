@@ -6,7 +6,7 @@ TERMUX_PKG_DESCRIPTION="Termux icin yapay zeka CLI yoneticisi (Claude Code, Code
 TERMUX_PKG_LICENSE="MIT"
 TERMUX_PKG_LICENSE_FILE="LICENSE"
 TERMUX_PKG_MAINTAINER="@MrHakan"
-TERMUX_PKG_VERSION="0.2.0"
+TERMUX_PKG_VERSION="0.2.1"
 TERMUX_PKG_SRCURL=https://github.com/MrHakan/termux-aify/archive/refs/tags/v${TERMUX_PKG_VERSION}.tar.gz
 # Etiket atildiktan sonra guncelleyin:
 #   ./scripts/bin/update-checksum aify   (ya da elle: sha256sum <tarball>)

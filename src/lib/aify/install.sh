@@ -333,7 +333,18 @@ _aify_install_one() {
 				fi
 				backend="$want"
 			fi
-			if [ "$backend" = glibc ]; then aify_glibc_configure "$binpath" || true; fi
+			if [ "$backend" = glibc ]; then
+				[ -x "$binpath" ] || chmod +x "$binpath" 2>/dev/null || true
+				if aify_glibc_configure "$binpath"; then
+					aify_step "glibc yukleyicisi yamalandi (patchelf)"
+				elif [ "$(aify_elf_type "$binpath")" = exec ]; then
+					# non-PIE bir ikili yamasiz calistirilamaz: ld.so onu
+					# yukleyemez, dogrudan calistirmak da bionic yukleyicisine
+					# duser. Tek secenek proot.
+					aify_warn "yama basarisiz ve ikili non-PIE; bu arac icin proot gerekiyor:"
+					aify_warn "  aify install $id --backend proot"
+				fi
+			fi
 			;;
 	esac
 

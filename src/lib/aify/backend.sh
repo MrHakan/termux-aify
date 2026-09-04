@@ -190,11 +190,67 @@ aify_proot_exec() {
 
 aify_grun() { if aify_have grun; then grun "$@"; else glibc-runner "$@"; fi; }
 
+# glibc ikilisini dogru sekilde baslatir.
+#   non-PIE (EXEC): ld.so bir EXEC dosyasini yukleyemez (segfault) - ikili
+#     kurulumda patchelf ile yamalandigi icin DOGRUDAN calistirilir.
+#     GitHub Copilot CLI 158MB'lik non-PIE bir Node SEA'dir; segfault'un sebebi
+#     tam olarak buydu.
+#   PIE (DYN): ld.so modu (grun BINARY) yamadan bagimsiz calisir; kendini
+#     guncelleyen araclar (agy) icin daha dayaniklidir.
+# Her iki durumda da Termux'un bionic libtermux-exec.so'su LD_PRELOAD'dan
+# cikarilmali, yoksa glibc sureci onu yuklemeye calisip patlar.
+# glibc yiginini gercekten sinar: getent ile ad cozumleme.
+# Tahmin yerine gercek hatayi gosterir ("token exchange failed" gibi
+# kirpilmis mesajlarin ardindaki sebebi bulmak icin).
+# glibc'in kendi getent'i de non-PIE'dir; once yamalayip dogrudan cagiririz.
+aify_glibc_dns_test() {
+	local host="${1:-oauth2.googleapis.com}" getent out rc
+	getent="$AIFY_PREFIX/glibc/bin/getent"
+	[ -x "$getent" ] || { echo "getent yok ($getent)"; return 2; }
+	aify_glibc_configure "$getent" >/dev/null 2>&1 || true
+	# shellcheck disable=SC2030  # PATH degisikligi bilerek alt kabukta kaliyor
+	out="$(
+		unset LD_PRELOAD
+		PATH="$AIFY_PREFIX/glibc/bin:$PATH"
+		if aify_have timeout; then timeout 10 "$getent" ahosts "$host" 2>&1
+		else "$getent" ahosts "$host" 2>&1; fi
+	)"
+	rc=$?
+	if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+		printf '%s\n' "$(printf '%s' "$out" | head -n1)"
+		return 0
+	fi
+	printf '%s\n' "${out:-cozumleme basarisiz (cikis kodu $rc)}"
+	return 1
+}
+
+# Calistirma yolu karari: direct (non-PIE, yamali) | grun (PIE, ld.so modu)
+aify_glibc_mode() {
+	case "$(aify_elf_type "$1")" in
+		exec) echo direct ;;
+		*)    echo grun ;;
+	esac
+}
+
+aify_glibc_exec() {
+	local path="$1"; shift
+	unset LD_PRELOAD
+	# shellcheck disable=SC2031  # ustteki alt kabukla ilgisi yok; exec edilecek
+	export PATH="$AIFY_PREFIX/glibc/bin:$PATH"
+	if [ "$(aify_glibc_mode "$path")" = direct ]; then
+		[ -x "$path" ] || chmod +x "$path" 2>/dev/null || true
+		exec "$path" "$@"
+	fi
+	if aify_have grun; then exec grun "$path" "$@"; fi
+	exec glibc-runner "$path" "$@"
+}
+
 # Bir ELF'i glibc arka ucu icin hazirlar (interpreter/rpath yamasi)
 aify_glibc_configure() {
 	local bin="$1"
 	aify_backend_available glibc || return 1
-	aify_grun -c "$bin" >/dev/null 2>&1 || aify_warn "grun -c basarisiz: $bin"
+	aify_is_elf "$bin" || return 1
+	aify_grun -c "$bin" >/dev/null 2>&1 || return 1
 	return 0
 }
 

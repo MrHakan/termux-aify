@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2015,SC2034,SC2012
+# shellcheck disable=SC2015,SC2034,SC2012,SC2030,SC2031
 # aify - bagimsiz test kosucusu (Termux disinda da calisir)
 set -uo pipefail
 
@@ -182,7 +182,63 @@ contains "bozuk state'te bile yerli calistiriliyor" "betik 1.0" "$AIFY" run beti
 rm -f "$AIFY_HOME/registry.d/betikaraci.tool"
 
 
-head_ "10. glibc ikilisinde arka uc otomatik degisiyor"
+head_ "10. glibc calistirma yolu (copilot segfault) ve ag ayarlari"
+. "$ROOT/src/lib/aify/backend.sh" 2>/dev/null || true
+. "$ROOT/src/lib/aify/run.sh" 2>/dev/null || true
+
+# 10a) ELF tipi: e_type baytini okuyarak PIE / non-PIE ayirt edilmeli
+if [ -x /bin/ls ] && aify_is_elf /bin/ls; then
+	cp /bin/ls "$AIFY_HOME/pie.bin"
+	cp /bin/ls "$AIFY_HOME/nonpie.bin"
+	# e_type (offset 16) = 2 -> EXEC (non-PIE), 3 -> DYN (PIE)
+	printf '\002\000' | dd of="$AIFY_HOME/nonpie.bin" bs=1 seek=16 conv=notrunc status=none
+	printf '\003\000' | dd of="$AIFY_HOME/pie.bin"    bs=1 seek=16 conv=notrunc status=none
+	[ "$(aify_elf_type "$AIFY_HOME/nonpie.bin")" = exec ] && ok "non-PIE (EXEC) tespit ediliyor" || bad "EXEC tespiti"
+	[ "$(aify_elf_type "$AIFY_HOME/pie.bin")" = dyn ] && ok "PIE (DYN) tespit ediliyor" || bad "DYN tespiti"
+	# 10b) Asil hata: non-PIE ikili ld.so'ya verilirse segfault olur
+	[ "$(aify_glibc_mode "$AIFY_HOME/nonpie.bin")" = direct ] \
+		&& ok "non-PIE ikili dogrudan calistiriliyor (ld.so'ya verilmiyor)" \
+		|| bad "non-PIE hala ld.so'ya veriliyor - segfault geri gelir"
+	[ "$(aify_glibc_mode "$AIFY_HOME/pie.bin")" = grun ] \
+		&& ok "PIE ikili ld.so modunda calisiyor" || bad "PIE yonlendirmesi yanlis"
+	printf '#!/bin/sh\n' > "$AIFY_HOME/duz.sh"
+	[ "$(aify_elf_type "$AIFY_HOME/duz.sh")" = none ] && ok "ELF olmayan dosya 'none'" || bad "ELF olmayan tespiti"
+else
+	printf '  atlandi (/bin/ls ELF degil)\n'
+fi
+
+# 10c) glibc /etc dosyalari: DNS icin resolv.conf uretilmeli
+fakeprefix="$AIFY_HOME/fakeprefix"
+mkdir -p "$fakeprefix/glibc/lib" "$fakeprefix/etc/tls"
+( AIFY_PREFIX="$fakeprefix"; aify_glibc_write_etc >/dev/null 2>&1 )
+if [ -f "$fakeprefix/glibc/etc/resolv.conf" ]; then
+	ok "glibc resolv.conf yaziliyor"
+	grep -q '^nameserver ' "$fakeprefix/glibc/etc/resolv.conf" && ok "resolv.conf nameserver iceriyor" || bad "nameserver yok"
+	check "nsswitch.conf yazildi" test -f "$fakeprefix/glibc/etc/nsswitch.conf"
+	check "hosts yazildi" test -f "$fakeprefix/glibc/etc/hosts"
+else
+	bad "glibc resolv.conf yazilmadi"
+fi
+
+# 10d) Go ikilileri icin ag ortami (agy: token exchange failed)
+touch "$fakeprefix/etc/tls/cert.pem"
+env_out="$(
+	AIFY_PREFIX="$fakeprefix"
+	unset GODEBUG SSL_CERT_FILE
+	_aify_glibc_runtime_env >/dev/null 2>&1
+	printf 'GODEBUG=%s SSL_CERT_FILE=%s' "${GODEBUG:-}" "${SSL_CERT_FILE:-}"
+)"
+case "$env_out" in
+	*"GODEBUG=netdns=cgo"*) ok "Go cgo cozumleyicisi zorlaniyor (netdns=cgo)" ;;
+	*) bad "GODEBUG ayarlanmadi: $env_out" ;;
+esac
+case "$env_out" in
+	*"SSL_CERT_FILE=$fakeprefix/etc/tls/cert.pem"*) ok "SSL_CERT_FILE CA demetine yonlendirildi" ;;
+	*) bad "SSL_CERT_FILE ayarlanmadi: $env_out" ;;
+esac
+
+
+head_ "11. glibc ikilisinde arka uc otomatik degisiyor"
 if [ "$(aify_binary_class /bin/ls)" = glibc ]; then
 	glibcdir="$AIFY_HOME/glibctest"; mkdir -p "$glibcdir"
 	cp /bin/ls "$glibcdir/sahte"
@@ -199,7 +255,7 @@ else
 	printf '  atlandi (bu makinede /bin/ls glibc degil)\n'
 fi
 
-head_ "11. Paketleme"
+head_ "12. Paketleme"
 if command -v dpkg-deb >/dev/null 2>&1 || command -v ar >/dev/null 2>&1; then
 	OUT_DIR="$AIFY_HOME/dist" BUILD_DIR="$AIFY_HOME/build" "$ROOT/packaging/build-deb.sh" >/dev/null 2>&1
 	deb="$(ls "$AIFY_HOME"/dist/aify_*_all.deb 2>/dev/null | head -n1)"
@@ -219,7 +275,7 @@ else
 	printf '  atlandi (dpkg-deb/ar yok)\n'
 fi
 
-head_ "12. apt deposu"
+head_ "13. apt deposu"
 if command -v dpkg-scanpackages >/dev/null 2>&1; then
 	site="$AIFY_HOME/site"
 	deb2="$(ls "$AIFY_HOME"/dist/aify_*_all.deb 2>/dev/null | head -n1)"
@@ -245,7 +301,7 @@ else
 	printf '  atlandi (dpkg-scanpackages yok)\n'
 fi
 
-head_ "13. Etkilesimli arayuz"
+head_ "14. Etkilesimli arayuz"
 contains "aify banner logoyu yaziyor" "aify" "$AIFY" banner
 contains "TTY yokken bare aify yardim veriyor" "KOMUTLAR" "$AIFY"
 if command -v python3 >/dev/null 2>&1; then
@@ -275,7 +331,7 @@ else
 	printf '  atlandi (python3 yok)\n'
 fi
 
-head_ "14. make install / uninstall"
+head_ "15. make install / uninstall"
 stage="$AIFY_HOME/stage"
 check "make install" make -s -C "$ROOT" install DESTDIR="$stage" PREFIX=/usr
 check "kurulan aify calisiyor" test -x "$stage/usr/bin/aify"

@@ -48,12 +48,25 @@ with a shell that doesn't work.
 | `glibc` | dynamic loader via [glibc-runner](https://github.com/termux-pacman/glibc-packages) (`grun`) | ~100 MB | `aify backend setup glibc` |
 | `proot` | `proot-distro` Debian container | ~500 MB, a bit slower | `aify backend setup proot` |
 
-The `glibc` backend also has to paper over Android's missing `/etc`: Termux's glibc is patched
-to read `$PREFIX/glibc/etc/resolv.conf` instead of `/etc/resolv.conf`, but the glibc package
-ships no such file — so `getaddrinfo` falls back to `127.0.0.1` and every DNS lookup fails.
-`aify backend setup glibc` writes `resolv.conf`, `nsswitch.conf` and `hosts` there, and
-`aify run` points `SSL_CERT_FILE` at Termux's CA bundle for Go binaries (whose `crypto/x509`
-looks for `/etc/ssl`, which doesn't exist on Android either).
+The `glibc` backend has to paper over two things Android simply doesn't have:
+
+**A missing `/etc`.** Termux's glibc is patched to read `$PREFIX/glibc/etc/resolv.conf` instead
+of `/etc/resolv.conf`, but the glibc package ships no such file — so `getaddrinfo` falls back to
+`127.0.0.1` and every DNS lookup fails. `aify backend setup glibc` writes `resolv.conf`,
+`nsswitch.conf` and `hosts` there. For Go binaries `aify run` also exports
+`GODEBUG=netdns=cgo` (without an `/etc/nsswitch.conf` Go picks its pure-Go resolver, which
+reads the literal `/etc/resolv.conf` that doesn't exist) and points `SSL_CERT_FILE` at Termux's
+CA bundle (Go's `crypto/x509` looks for `/etc/ssl`).
+
+**Non-PIE executables.** `glibc-runner` normally launches a binary as `ld.so <binary>`, but the
+dynamic loader cannot load a non-PIE (`ET_EXEC`) file that way — it segfaults. GitHub Copilot
+CLI ships exactly that: a 158 MB non-PIE Node SEA. `aify` reads `e_type` from the ELF header and
+routes accordingly: non-PIE binaries get their interpreter patched at install time and are then
+executed directly, PIE binaries go through `ld.so` (which survives self-updates).
+
+`aify doctor` verifies all of this, including a real name-resolution test through glibc's own
+`getent` plus a control request over Termux's native stack — so you can tell a glibc problem
+apart from a phone-network problem.
 
 Under the `proot` backend, `$HOME` and your current directory are bind-mounted at the **same
 paths**; so settings like `~/.claude`, `~/.codex` end up in the same place as a native install,
@@ -138,7 +151,7 @@ Just running `aify` in the terminal opens an interactive UI with an ASCII logo �
 pick a backend, run diagnostics; all from here:
 
 ```
-  ▄▀█ █ █▀▀ █▄█   aify v0.2.0
+  ▄▀█ █ █▀▀ █▄█   aify v0.2.1
   █▀█ █ █▀░  █    An AI CLI manager for Termux
 
   Termux · aarch64 · node 24.18.0 · backend: native,glibc
@@ -255,7 +268,8 @@ tool_post_install() {   # optional: $1=install dir  $2=binary path
 | Claude Code self-updates and breaks | `DISABLE_AUTOUPDATER=1` is already set; update via `aify update claude` instead |
 | `Unable to locate package aify` | the repo line was never written — run the `mkdir -p` from the install step first |
 | `invalid ELF header` when running a tool | the state has a stale backend; `aify install <id>` re-resolves it (`aify run` also self-corrects) |
-| Network errors under the glibc backend (`token exchange failed`, DNS) | `aify backend setup glibc` — writes `$PREFIX/glibc/etc/resolv.conf`; set your own with `aify config set glibc.dns "1.1.1.1 8.8.8.8"` |
+| Network errors under the glibc backend (`token exchange failed`, DNS) | `aify doctor` names the actual cause; `aify backend setup glibc` writes `$PREFIX/glibc/etc/resolv.conf`, and `aify config set glibc.dns "1.1.1.1 8.8.8.8"` sets your own resolvers |
+| `Segmentation fault` from a glibc tool | a non-PIE binary was handed to `ld.so`; fixed since 0.2.1 — `aify install <id>` re-resolves and re-patches it |
 | See everything | `aify doctor` and `AIFY_DEBUG=1 aify ...` |
 
 Environment variables: `AIFY_HOME` (default `~/.aify`), `AIFY_YES=1` (skip prompts),
@@ -266,7 +280,7 @@ Environment variables: `AIFY_HOME` (default `~/.aify`), `AIFY_YES=1` (skip promp
 ## Development
 
 ```bash
-make check     # 86 tests (also runs outside Termux)
+make check     # 97 tests (also runs outside Termux)
 make lint      # shellcheck
 make deb       # dist/aify_<version>_all.deb
 make apt-repo  # a publish-ready apt repo under site/

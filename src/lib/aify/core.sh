@@ -4,7 +4,7 @@
 
 # Bu degiskenler diger lib dosyalarinda ve bin/aify icinde kullanilir.
 # shellcheck disable=SC2034
-AIFY_VERSION="0.2.0"
+AIFY_VERSION="0.2.1"
 
 # --- Yollar -----------------------------------------------------------------
 AIFY_PREFIX="${PREFIX:-/usr}"
@@ -171,6 +171,19 @@ aify_binary_class() {
 		*ld-linux*)    echo glibc ;;
 		*linker*)      echo static ;;   # bionic linker: zaten Termux yerlisi
 		*)             echo unknown ;;
+	esac
+}
+
+# ELF tipi: exec (non-PIE) | dyn (PIE) | none
+# e_type basligin 16. baytindadir; readelf Termux'ta varsayilan gelmez.
+# Fark onemli: dinamik yukleyici (ld.so BINARY) non-PIE bir dosyayi
+# yukleyemez, segfault ile duser - o yuzden onlari dogrudan calistiririz.
+aify_elf_type() {
+	aify_is_elf "$1" || { echo none; return; }
+	case "$(od -An -tu2 -j16 -N2 "$1" 2>/dev/null | tr -d ' ')" in
+		2) echo exec ;;
+		3) echo dyn ;;
+		*) echo none ;;
 	esac
 }
 
