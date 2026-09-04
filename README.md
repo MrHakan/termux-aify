@@ -1,85 +1,86 @@
-# aify — Termux için yapay zekâ CLI yöneticisi
+# aify — an AI CLI manager for Termux
 
-`aify`, telefonundaki Termux'ta **Claude Code, OpenAI Codex, Gemini CLI, Antigravity CLI (`agy`),
-GitHub CLI, opencode** ve benzeri terminal yapay zekâ araçlarını tek komutla kuran, güncelleyen ve
-**doğru arka uç ile** çalıştıran bir Termux paketidir.
+`aify` is a Termux package that installs, updates, and runs **Claude Code, OpenAI Codex, Gemini
+CLI, Antigravity CLI (`agy`), GitHub CLI, opencode**, and similar terminal AI tools on your
+phone's Termux — all with a single command, and each one **on the right backend**.
 
-opencode ya da opencodex gibi projeler *tek bir ajanı* sunar; `aify` ise onları da içine alan bir
-**yönetici**dir: her araç için yalıtılmış bir dizin, PATH'e düşen ince bir shim ve — en önemlisi —
-Termux'ta (Android/bionic) çalışmayan ikililer için otomatik bir kaçış yolu sağlar.
+Projects like opencode or opencodex ship *a single agent*; `aify` is the **manager** that wraps
+them all: an isolated directory per tool, a thin shim on your PATH, and — most importantly — an
+automatic escape hatch for binaries that don't run on Termux (Android/bionic) at all.
 
 ```
-pkg install aify          # ya da: curl -fsSL .../install.sh | bash
+pkg install aify          # or: curl -fsSL .../install.sh | bash
 aify setup
 aify install gemini codex gh
-aify install claude       # glibc arka ucunu kendisi önerir
-aify codex "bu repoda testleri çalıştır"
+aify install claude       # picks the glibc backend for you
+aify codex "run the tests in this repo"
 ```
 
 ---
 
-## Neden gerekli? (Termux'un asıl sorunu)
+## Why this exists (Termux's real problem)
 
-Android **bionic** libc kullanır; Linux dağıtımlarının `glibc`/`musl` ikilileri Termux'ta doğrudan
-çalışmaz. 2025'ten beri bu araçların çoğu saf JavaScript olmaktan çıkıp **platforma özel yerli
-ikili** dağıtıyor ve hiçbirinin Android yapısı yok. Üstelik Termux'ta Node `process.platform`
-değerini `android` verdiği için `npm`, `os: ["linux"]` işaretli platform paketlerini **sessizce
-atlar** — `npm i -g @anthropic-ai/claude-code` bu yüzden çalışmayan bir kabuk bırakır.
+Android uses **bionic** libc; Linux distros' `glibc`/`musl` binaries don't run on Termux
+directly. Since 2025, most of these tools have stopped being pure JavaScript and now ship
+**platform-specific native binaries** — none of which have an Android build. On top of that,
+Termux's Node reports `process.platform` as `android`, so `npm` **silently skips** platform
+packages tagged `os: ["linux"]` — which is why `npm i -g @anthropic-ai/claude-code` leaves you
+with a shell that doesn't work.
 
-`aify` bu üç sorunu birden çözer:
+`aify` solves all three problems at once:
 
-1. npm'e hedefi açıkça söyler (`--os=linux --cpu=arm64 --libc=glibc`),
-2. kurulumdan sonra ikilinin ELF sınıfını okur (statik / glibc / musl / betik),
-3. sınıfa göre arka ucu seçer ve shim'i ona göre yazar.
+1. tells npm the target explicitly (`--os=linux --cpu=arm64 --libc=glibc`),
+2. reads the installed binary's ELF class after install (static / glibc / musl / script),
+3. picks the backend based on that class and writes the shim accordingly.
 
-| Sınıf | Örnek | Arka uç |
+| Class | Example | Backend |
 |---|---|---|
-| yorumlanan betik (node) | Gemini CLI, Qwen Code | `native` |
-| statik ELF | Codex, Crush | `native` |
-| glibc'e bağlı ELF | Claude Code, `agy`, opencode, Copilot CLI | `glibc` (glibc-runner) veya `proot` |
-| musl'a bağlı ELF | bazı bun/musl yapıları | `proot` |
+| interpreted script (node) | Gemini CLI, Qwen Code | `native` |
+| static ELF | Codex, Crush | `native` |
+| glibc-linked ELF | Claude Code, `agy`, opencode, Copilot CLI | `glibc` (glibc-runner) or `proot` |
+| musl-linked ELF | some bun/musl builds | `proot` |
 
-### Arka uçlar
+### Backends
 
-| Arka uç | Nasıl | Maliyet | Hazırlık |
+| Backend | How | Cost | Setup |
 |---|---|---|---|
-| `native` | Termux içinde doğrudan | yok | hazır |
-| `glibc` | [glibc-runner](https://github.com/termux-pacman/glibc-packages) (`grun`) ile dinamik yükleyici | ~100 MB | `aify backend setup glibc` |
-| `proot` | `proot-distro` Debian kabı | ~500 MB, biraz yavaş | `aify backend setup proot` |
+| `native` | directly inside Termux | none | ready |
+| `glibc` | dynamic loader via [glibc-runner](https://github.com/termux-pacman/glibc-packages) (`grun`) | ~100 MB | `aify backend setup glibc` |
+| `proot` | `proot-distro` Debian container | ~500 MB, a bit slower | `aify backend setup proot` |
 
-`proot` arka ucunda `$HOME` ve içinde bulunduğun dizin kaba **aynı yollarla** bağlanır; yani
-`~/.claude`, `~/.codex` gibi ayarlar yerli kurulumla aynı yerde durur, projelerin de aynı
-yoldan görünür.
+Under the `proot` backend, `$HOME` and your current directory are bind-mounted at the **same
+paths**; so settings like `~/.claude`, `~/.codex` end up in the same place as a native install,
+and your projects are visible at the same paths too.
 
 ---
 
-## Desteklenen araçlar
+## Supported tools
 
-`aify list` ile güncel listeyi görebilirsin.
+Run `aify list` for the up-to-date list.
 
-| id | Araç | Kaynak | Termux'ta | Not |
+| id | Tool | Source | On Termux | Note |
 |---|---|---|---|---|
-| `claude` | Claude Code | npm `@anthropic-ai/claude-code` | glibc / proot | 2.x yerli ikili dağıtıyor, Android yapısı yok |
-| `codex` | OpenAI Codex CLI | npm `@openai/codex` | **yerli** | `aarch64-*-musl` hedefi statik; sarmalayıcı `android`'i tanıyor |
-| `gemini` | Gemini CLI | npm `@google/gemini-cli` | **yerli** | saf JS |
-| `qwen` | Qwen Code | npm `@qwen-code/qwen-code` | **yerli** | saf JS |
-| `agy` | Antigravity CLI | resmi kurulum betiği | glibc / proot | sha512 doğrulamalı yerli ikili (glibc) |
-| `gh` | GitHub CLI | Termux paketi | **yerli** | `pkg install gh` |
-| `opencode` | opencode | npm `opencode-ai` | glibc / proot | bun ile derlenmiş ikili |
+| `claude` | Claude Code | npm `@anthropic-ai/claude-code` | glibc / proot | 2.x ships a native binary, no Android build |
+| `codex` | OpenAI Codex CLI | npm `@openai/codex` | **native** | `aarch64-*-musl` target is static; wrapper recognizes `android` |
+| `gemini` | Gemini CLI | npm `@google/gemini-cli` | **native** | pure JS |
+| `qwen` | Qwen Code | npm `@qwen-code/qwen-code` | **native** | pure JS |
+| `agy` | Antigravity CLI | official install script | glibc / proot | sha512-verified native binary (glibc) |
+| `gh` | GitHub CLI | Termux package | **native** | `pkg install gh` |
+| `opencode` | opencode | npm `opencode-ai` | glibc / proot | binary compiled with bun |
 | `copilot` | GitHub Copilot CLI | npm `@github/copilot` | glibc / proot | |
-| `opencodex` | OpenCodex | npm `@bitkyc08/opencodex` | **yerli** | Codex/Claude Code için sağlayıcı proxy'si |
-| `ccr` | Claude Code Router | npm `@musistudio/claude-code-router` | **yerli** | modeli yönlendirir |
-| `crush` | Crush | GitHub sürümleri | **yerli** | Go ikilisi statik |
-| `aider` | Aider | `uv` / `pipx` | proot (yerli deneysel) | Android için hazır wheel yok |
+| `opencodex` | OpenCodex | npm `@bitkyc08/opencodex` | **native** | provider proxy for Codex/Claude Code |
+| `ccr` | Claude Code Router | npm `@musistudio/claude-code-router` | **native** | routes the model |
+| `crush` | Crush | GitHub releases | **native** | Go binary, statically linked |
+| `aider` | Aider | `uv` / `pipx` | proot (native experimental) | no prebuilt wheels for Android |
 
-Ayrıntı için: `aify info <id>` — her araç için giriş yöntemi, arka uç gerekçesi ve Termux'a
-özgü notlar orada yazılıdır.
+For details, run `aify info <id>` — the login method, the reasoning behind the backend choice,
+and Termux-specific notes are all written there per tool.
 
 ---
 
-## Kurulum
+## Installation
 
-### 1) apt deposundan (önerilen)
+### 1) From the apt repo (recommended)
 
 ```bash
 echo "deb [trusted=yes] https://mrhakan.github.io/termux-aify aify main" \
@@ -87,32 +88,33 @@ echo "deb [trusted=yes] https://mrhakan.github.io/termux-aify aify main" \
 pkg update && pkg install aify
 ```
 
-> Depo, `v*` etiketi atıldığında (ya da `release` iş akışı elle çalıştırıldığında — bu durumda
-> etiketi iş akışının kendisi oluşturur) GitHub Pages'e yayımlanır.
-> (Repo ayarlarında **Settings → Pages → Source: GitHub Actions** seçili olmalı; aksi hâlde
-> `pages` işi hata verir, `.deb` yine de sürüme eklenir.)
+> The repo is published to GitHub Pages when a `v*` tag is pushed (or when the `release`
+> workflow is run manually — in that case the workflow creates the tag itself).
+> (**Settings → Pages → Source: GitHub Actions** must be selected in the repo settings;
+> otherwise the `pages` job fails, though the `.deb` still gets attached to the release.)
 
-> Pages henüz açılmadıysa depo 404 verir; o zaman aşağıdaki `.deb` yolunu kullan.
+> If Pages hasn't been enabled yet, the repo returns 404 — use the `.deb` path below instead.
 
-### 2) Hazır `.deb` ile
+### 2) With a prebuilt `.deb`
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MrHakan/termux-aify/main/install.sh | bash
 ```
 
-Betik önce son sürümdeki `.deb`'i dener, bulamazsa kaynaktan kurar.
+The script first tries the latest release's `.deb`, and falls back to building from source if
+that's not available.
 
-### 3) Kaynaktan
+### 3) From source
 
 ```bash
 git clone https://github.com/MrHakan/termux-aify
 cd termux-aify
-make install            # PREFIX Termux'ta otomatik
+make install            # PREFIX is auto-detected on Termux
 ```
 
-### 4) termux-packages ağacında derlemek
+### 4) Building inside the termux-packages tree
 
-`packaging/termux-packages/aify/` dizinini `termux-packages/packages/aify/` altına kopyalayıp:
+Copy `packaging/termux-packages/aify/` to `termux-packages/packages/aify/`, then:
 
 ```bash
 ./build-package.sh -a all aify
@@ -120,152 +122,151 @@ make install            # PREFIX Termux'ta otomatik
 
 ---
 
-## Arayüz
+## Interface
 
-Terminalde tek başına `aify` yazınca ASCII logolu etkileşimli arayüz açılır — kurulum,
-çalıştırma, arka uç seçimi, teşhis; hepsi buradan:
+Just running `aify` in the terminal opens an interactive UI with an ASCII logo — install, run,
+pick a backend, run diagnostics; all from here:
 
 ```
   ▄▀█ █ █▀▀ █▄█   aify v0.1.0
-  █▀█ █ █▀░  █    Termux için yapay zekâ CLI yöneticisi
+  █▀█ █ █▀░  █    An AI CLI manager for Termux
 
-  Termux · aarch64 · node 24.18.0 · arka uç: native,glibc
+  Termux · aarch64 · node 24.18.0 · backend: native,glibc
 
-╭─ Araçlar ─────────────────────────────────────────────╮
+╭─ Tools ───────────────────────────────────────────────╮
 │ ❯ claude      Claude Code             ● glibc         │
 │   codex       OpenAI Codex CLI        ● native        │
 │   gemini      Gemini CLI              ○ native        │
 │   agy         Antigravity CLI         ○ glibc         │
 ╰───────────────────────────────────────────────────────╯
 
-  i kur   r çalıştır   enter bilgi   d sil   u güncelle
-  b arka uçlar   t teşhis   / komut   ? yardım   q çıkış
+  i install   r run   enter info   d remove   u update
+  b backends   t doctor   / command   ? help   q quit
 ```
 
-| Tuş | İş |
+| Key | Action |
 |---|---|
-| `↑` `↓` (veya `j` `k`) | araçlar arasında gezin |
-| `enter` | seçili araç için işlem menüsü (bilgi / kur / çalıştır / güncelle / kaldır / arka uç) |
-| `i` `r` `d` `u` | doğrudan kur, çalıştır, kaldır, güncelle |
-| `b` | arka uç ekranı (glibc / proot kurulumu) |
+| `↑` `↓` (or `j` `k`) | move between tools |
+| `enter` | action menu for the selected tool (info / install / run / update / remove / backend) |
+| `i` `r` `d` `u` | install, run, remove, update directly |
+| `b` | backends screen (set up glibc / proot) |
 | `t` | `aify doctor` |
-| `/` | serbest komut satırı (`install gemini`, `config list`, …) |
-| `?` | yardım · `q` çıkış |
+| `/` | free-form command line (`install gemini`, `config list`, …) |
+| `?` | help · `q` quit |
 
-Arayüz alternatif ekranda açılır, çıkışta terminali olduğu gibi bırakır. Betik içinden ya da
-boruyla çağrıldığında (TTY yoksa) otomatik olarak eski davranışa, yani yardım metnine düşer;
-`aify ui` ile zorlayabilir, `aify banner` ile yalnızca logoyu yazdırabilirsin.
-Unicode olmayan bir terminalde `AIFY_ASCII=1` ASCII moduna geçirir.
-
+The UI opens on the alternate screen and leaves your terminal as it was on exit. When called
+from a script or through a pipe (no TTY), it automatically falls back to the old behavior — the
+help text; force it with `aify ui`, or print just the logo with `aify banner`.
+On a non-Unicode terminal, `AIFY_ASCII=1` switches to ASCII mode.
 
 ---
 
-## Kullanım
+## Usage
 
 ```
-aify                       # etkileşimli arayüz (yukarıdaki ekran)
-aify setup                 # dizinler, temel paketler, PATH
-aify list                  # araçlar ve kurulum durumu
-aify info claude           # ayrıntı + Termux notları
-aify install gemini codex  # kur
+aify                       # interactive UI (screen above)
+aify setup                 # directories, base packages, PATH
+aify list                  # tools and install status
+aify info claude           # details + Termux-specific notes
+aify install gemini codex  # install
 aify install claude --backend proot
-aify update                # kurulu her şeyi güncelle
+aify update                # update everything installed
 aify remove opencode
-aify run codex --help      # ya da kısayol:  aify codex --help
+aify run codex --help      # or the shortcut:  aify codex --help
 aify backend status
 aify backend setup glibc
-aify doctor                # ortam teşhisi
+aify doctor                # environment diagnostics
 aify config set tool.claude.backend proot
 ```
 
-Kurulan her araç `~/.aify/bin/<komut>` altında ince bir shim alır; bu dizin
-`$PREFIX/etc/profile.d/aify.sh` sayesinde yeni oturumlarda otomatik PATH'e girer. Yani kurulumdan
-sonra `claude`, `codex`, `gemini` komutlarını doğrudan yazabilirsin — `aify run` şart değil.
+Every installed tool gets a thin shim under `~/.aify/bin/<command>`; this directory is added to
+PATH automatically in new sessions via `$PREFIX/etc/profile.d/aify.sh`. So after install you can
+type `claude`, `codex`, `gemini` directly — `aify run` isn't required.
 
-### Dizin düzeni
+### Directory layout
 
 ```
 ~/.aify/
-├── bin/            # PATH'e giren shim'ler
-├── tools/<id>/     # araç başına yalıtılmış kurulum (npm --prefix)
-├── state/<id>      # arka uç, ikili yolu, sürüm, ELF sınıfı
-├── registry.d/     # senin eklediğin araç tanımları
+├── bin/            # shims that land on PATH
+├── tools/<id>/     # per-tool isolated install (npm --prefix)
+├── state/<id>      # backend, binary path, version, ELF class
+├── registry.d/     # tool definitions you've added
 ├── cache/  log/
-└── config          # anahtar=değer
+└── config          # key=value
 ```
 
-Paketi kaldırmak `~/.aify` içindekilere dokunmaz: `pkg uninstall aify && rm -rf ~/.aify`.
+Removing the package leaves `~/.aify` untouched: `pkg uninstall aify && rm -rf ~/.aify`.
 
 ---
 
-## Kendi aracını ekleme
+## Adding your own tool
 
-Üç hazır yol:
+Three built-in ways:
 
 ```bash
-aify add-npm @benim/ajanim --bin ajan      # herhangi bir npm CLI
-aify add-gh  charmbracelet/crush --bin crush   # GitHub sürüm ikilisi
-aify add-pkg glab                          # Termux paketi
+aify add-npm @my/agent --bin agent           # any npm CLI
+aify add-gh  charmbracelet/crush --bin crush # GitHub release binary
+aify add-pkg glab                            # a Termux package
 ```
 
-…ya da `~/.aify/registry.d/<id>.tool` dosyasını elle yaz (dahili tanımlarla aynı biçim,
-aynı adı kullanırsan dahili tanımı ezer):
+…or write `~/.aify/registry.d/<id>.tool` by hand (same format as the built-in definitions;
+using the same id overrides the built-in one):
 
 ```sh
-TOOL_ID=ajan
-TOOL_NAME="Benim Ajanım"
-TOOL_SUMMARY="kısa açıklama"
+TOOL_ID=agent
+TOOL_NAME="My Agent"
+TOOL_SUMMARY="short description"
 TOOL_KIND=npm                 # npm | pkg | github | installer | uv
-TOOL_PACKAGE="@benim/ajanim"
-TOOL_BIN=ajan
-TOOL_BACKENDS="native glibc proot"   # tercih sırası
-TOOL_DEPS="nodejs-lts"               # eksikse pkg ile kurulur
-TOOL_NPM_LIBC=glibc                  # npm platform paketi seçimi
-TOOL_NATIVE_BINARY="lib/node_modules/@benim/ajanim-linux-arm64/ajan"
-TOOL_ENV=( "AJAN_TELEMETRY=0" )
-TOOL_AUTH="ajan login"
-TOOL_NOTES="Termux'a özgü notlar"
+TOOL_PACKAGE="@my/agent"
+TOOL_BIN=agent
+TOOL_BACKENDS="native glibc proot"   # preference order
+TOOL_DEPS="nodejs-lts"               # installed via pkg if missing
+TOOL_NPM_LIBC=glibc                  # npm platform-package selection
+TOOL_NATIVE_BINARY="lib/node_modules/@my/agent-linux-arm64/agent"
+TOOL_ENV=( "AGENT_TELEMETRY=0" )
+TOOL_AUTH="agent login"
+TOOL_NOTES="Termux-specific notes"
 
-tool_post_install() {   # istege bagli: $1=kurulum dizini  $2=ikili yolu
+tool_post_install() {   # optional: $1=install dir  $2=binary path
 	return 0
 }
 ```
 
 ---
 
-## Sorun giderme
+## Troubleshooting
 
-| Belirti | Çözüm |
+| Symptom | Fix |
 |---|---|
-| `komut bulunamadı` | Yeni oturum aç ya da `eval "$(aify env)"` |
-| `glibc arka ucu yok` | `aify backend setup glibc` |
-| Kurulum sonrası ikili bozuldu (otomatik güncelleme) | `aify install <id>` — arka uç yeniden hazırlanır |
-| Codex sandbox hatası | Android'de landlock/seccomp yok: `~/.codex/config.toml` içine `sandbox_mode = "danger-full-access"` (güvenlik kararını bilerek ver) |
-| Claude Code kendini güncelleyip bozuyor | `DISABLE_AUTOUPDATER=1` zaten ayarlı; güncellemeyi `aify update claude` ile yap |
-| Her şeyi görmek | `aify doctor` ve `AIFY_DEBUG=1 aify ...` |
+| `command not found` | open a new session, or `eval "$(aify env)"` |
+| `glibc backend not available` | `aify backend setup glibc` |
+| Binary broke after install (self-update) | `aify install <id>` — re-prepares the backend |
+| Codex sandbox error | Android has no landlock/seccomp: add `sandbox_mode = "danger-full-access"` to `~/.codex/config.toml` (make that security tradeoff knowingly) |
+| Claude Code self-updates and breaks | `DISABLE_AUTOUPDATER=1` is already set; update via `aify update claude` instead |
+| See everything | `aify doctor` and `AIFY_DEBUG=1 aify ...` |
 
-Ortam değişkenleri: `AIFY_HOME` (varsayılan `~/.aify`), `AIFY_YES=1` (soru sorma),
+Environment variables: `AIFY_HOME` (default `~/.aify`), `AIFY_YES=1` (skip prompts),
 `AIFY_DEBUG=1`, `NO_COLOR=1`.
 
 ---
 
-## Geliştirme
+## Development
 
 ```bash
-make check     # 82 test (Termux dışında da çalışır)
+make check     # 83 tests (also runs outside Termux)
 make lint      # shellcheck
-make deb       # dist/aify_<sürüm>_all.deb
-make apt-repo  # site/ altında yayına hazır apt deposu
+make deb       # dist/aify_<version>_all.deb
+make apt-repo  # a publish-ready apt repo under site/
 make install DESTDIR=/tmp/stage PREFIX=/usr
 ```
 
-Testler; kayıt dosyalarının geçerliliğini, ELF sınıflandırmasını, npm yerleşimlerinde ikili
-çözümlemeyi (iç içe ve "stub" sarmalayıcı durumları dâhil), glibc ikilisinde arka ucun otomatik
-değişmesini, `.deb` içeriğini, apt deposunun yapısını (Release karma değerleri dâhil) ve
-`make install/uninstall` akışını doğrular. Sürüm iş akışı ayrıca depoyu **gerçek `apt-get update`
-ile** `aarch64` mimarisinde doğrular.
+The tests cover: registry-file validity, ELF classification, binary resolution across npm
+layouts (including nested and "stub"-wrapper cases), the backend auto-switching to glibc for
+glibc-linked binaries, `.deb` contents, the apt repo's structure (including Release checksums),
+and the `make install/uninstall` flow. The release workflow additionally verifies the repo with
+a **real `apt-get update`** on the `aarch64` architecture.
 
-## Lisans
+## License
 
-MIT — bkz. [LICENSE](LICENSE). Buradaki araçların kendi lisansları ve kullanım koşulları geçerlidir;
-`aify` yalnızca kurulum ve çalıştırma katmanıdır, hiçbiriyle resmî bir bağı yoktur.
+MIT — see [LICENSE](LICENSE). The tools listed here carry their own licenses and terms of use;
+`aify` is only the install/run layer and has no official affiliation with any of them.
