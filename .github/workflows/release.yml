@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Yayinlanacak etiket (bos birakilirsa v<surum> kullanilir)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -30,6 +35,19 @@ jobs:
 
       - id: ver
         run: echo "version=$(make -s version)" >> "$GITHUB_OUTPUT"
+
+      - name: yayin etiketini belirle
+        id: tag
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          elif [ -n "${{ inputs.tag }}" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="v${{ steps.ver.outputs.version }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Yayin etiketi: $tag"
 
       - name: .deb uret
         run: |
@@ -60,8 +78,22 @@ jobs:
         with:
           path: site
 
+      - name: etiketi olustur (yoksa)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag zaten var"
+          else
+            git tag -a "$tag" -m "aify $tag"
+            git push origin "$tag"
+            echo "$tag olusturuldu"
+          fi
+
       - name: surum notlari
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           repo="$GITHUB_REPOSITORY"
           pages="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}"
@@ -77,18 +109,17 @@ jobs:
             echo
             echo "Ya da dogrudan .deb ile:"
             echo '```bash'
-            echo "curl -fLO https://github.com/$repo/releases/download/$GITHUB_REF_NAME/aify_${ver}_all.deb"
+            echo "curl -fLO https://github.com/$repo/releases/download/${{ steps.tag.outputs.tag }}/aify_${ver}_all.deb"
             echo "apt install ./aify_${ver}_all.deb"
             echo '```'
           } > release-notes.md
           cat release-notes.md
 
       - name: surumu yayinla
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="$GITHUB_REF_NAME"
+          tag="${{ steps.tag.outputs.tag }}"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" dist/aify_*_all.deb --clobber
             gh release edit "$tag" --notes-file release-notes.md

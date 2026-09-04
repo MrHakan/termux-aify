@@ -87,7 +87,8 @@ echo "deb [trusted=yes] https://mrhakan.github.io/termux-aify aify main" \
 pkg update && pkg install aify
 ```
 
-> Depo, `v*` etiketi atıldığında `release.yml` iş akışıyla GitHub Pages'e yayımlanır.
+> Depo, `v*` etiketi atıldığında (ya da `release` iş akışı elle çalıştırıldığında — bu durumda
+> etiketi iş akışının kendisi oluşturur) GitHub Pages'e yayımlanır.
 > (Repo ayarlarında **Settings → Pages → Source: GitHub Actions** seçili olmalı; aksi hâlde
 > `pages` işi hata verir, `.deb` yine de sürüme eklenir.)
 
