@@ -29,7 +29,7 @@ _aify_glibc_runtime_env() {
 	# glibc yamamiz Go'yu etkilemez. netdns=cgo, getaddrinfo'ya (yani bizim
 	# yazdigimiz $PREFIX/glibc/etc/resolv.conf'a) yonlendirir.
 	if [ -z "${GODEBUG:-}" ]; then export GODEBUG="netdns=cgo"; fi
-	[ -f "$(aify_glibc_etc_dir)/resolv.conf" ] || aify_glibc_write_etc >/dev/null 2>&1 || true
+	[ -f "$AIFY_PREFIX/glibc/etc/resolv.conf" ] || aify_glibc_write_etc >/dev/null 2>&1 || true
 	return 0
 }
 
@@ -48,9 +48,14 @@ aify_cmd_run() {
 		fi
 	fi
 
-	local backend path tdir
-	backend="$(aify_state_get "$id" backend || echo native)"
-	path="$(aify_state_get "$id" path || echo "$TOOL_BIN")"
+	# State tek okumada: her shim cagrisi buradan gecer, alt surec yok.
+	local backend=native path="$TOOL_BIN" tdir line
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+			backend=*) backend="${line#*=}" ;;
+			path=*)    path="${line#*=}" ;;
+		esac
+	done < "$AIFY_STATE_DIR/$id"
 	tdir="$AIFY_TOOLS_DIR/$id"
 
 	_aify_export_tool_env
@@ -79,10 +84,9 @@ aify_cmd_run() {
 			;;
 		proot)
 			aify_backend_available proot || aify_die "proot arka ucu yok: aify backend setup proot"
-			local cmd; cmd="$(printf '%q' "$path")"
-			local a
-			for a in "$@"; do cmd="$cmd $(printf '%q' "$a")"; done
-			aify_proot_exec "exec $cmd"
+			local cmd
+			printf -v cmd '%q ' "$path" "$@"
+			aify_proot_exec "exec ${cmd% }"
 			;;
 		*) aify_die "bilinmeyen arka uc: $backend" ;;
 	esac

@@ -345,7 +345,96 @@ else
 	printf '  atlandi (python3 yok)\n'
 fi
 
-head_ "15. make install / uninstall"
+head_ "15. Regresyonlar (0.4.0)"
+# Kendini bulma: goreli yol, "." bilesenleri ve symlink ile AIFY_ROOT dogru olmali
+contains "goreli yoldan calisiyor" "aify 0." bash -c "cd '$ROOT/src/bin' && ./aify version"
+contains "'.' bilesenli yoldan calisiyor" "claude" bash -c "cd '$ROOT' && ./src/./bin/aify list"
+lnk="$AIFY_HOME/lnk"; mkdir -p "$lnk"; ln -sf "$AIFY" "$lnk/aify"
+contains "symlink uzerinden calisiyor" "claude" "$lnk/aify" list
+
+# Config: diger anahtarlar korunmali, degerde '=' olabilir, unset tam silmeli
+"$AIFY" config set a.b 1 >/dev/null 2>&1
+"$AIFY" config set c.d "x=y" >/dev/null 2>&1
+"$AIFY" config set a.b 2 >/dev/null 2>&1
+contains "config uzerine yazma" "^2$" "$AIFY" config get a.b
+contains "config degerinde '=' korunuyor" "^x=y$" "$AIFY" config get c.d
+[ "$(grep -c '^a\.b=' "$AIFY_HOME/config")" = 1 ] && ok "config tekrar eden anahtar birakmiyor" || bad "config anahtari tekrarlandi"
+"$AIFY" config unset a.b >/dev/null 2>&1; "$AIFY" config unset c.d >/dev/null 2>&1
+[ -z "$("$AIFY" config get c.d 2>/dev/null)" ] && ok "config unset (son anahtar)" || bad "config unset (son anahtar)"
+contains "config get varsayilan" "^vars$" bash -c ". '$ROOT/src/lib/aify/core.sh'; aify_config_get yok.boyle vars"
+
+# --backend dogrulamasi
+contains "--backend degersiz hata veriyor" "deger ister" "$AIFY" install crush --backend
+contains "gecersiz arka uc reddediliyor" "gecersiz arka uc" "$AIFY" install crush --backend bogus
+
+# aify_tool_load onceki aracin TOOL_GH_* degerlerini tasimamali
+leak="$(
+	export AIFY_SHAREDIR="$ROOT/src/share/aify"
+	. "$ROOT/src/lib/aify/core.sh"; . "$ROOT/src/lib/aify/registry.sh"
+	aify_tool_load crush; aify_tool_load claude
+	printf '%s' "${TOOL_GH_REPO:-}${TOOL_GH_MATCH:-}"
+)"
+[ -z "$leak" ] && ok "TOOL_GH_* araclar arasi sizmiyor" || bad "TOOL_GH_* sizdi: $leak"
+
+# Siralama: kullanici kayitlari da alfabetik ve tekil listelenmeli
+mkdir -p "$AIFY_HOME/registry.d"
+printf 'TOOL_NAME=A\nTOOL_KIND=pkg\nTOOL_PKG=a\n' > "$AIFY_HOME/registry.d/aaa-ilk.tool"
+cp "$ROOT/src/share/aify/registry.d/codex.tool" "$AIFY_HOME/registry.d/codex.tool"
+idlist="$(bash -c "export AIFY_HOME='$AIFY_HOME' AIFY_SHAREDIR='$ROOT/src/share/aify'; . '$ROOT/src/lib/aify/core.sh'; . '$ROOT/src/lib/aify/registry.sh'; aify_tool_ids")"
+[ "$idlist" = "$(printf '%s\n' "$idlist" | sort -u)" ] && ok "arac id'leri sirali ve tekil" || bad "id listesi sirasiz/tekrarli: $idlist"
+[ "$(printf '%s\n' "$idlist" | head -n1)" = aaa-ilk ] && ok "kullanici kaydi listede" || bad "kullanici kaydi yok"
+rm -f "$AIFY_HOME/registry.d/aaa-ilk.tool" "$AIFY_HOME/registry.d/codex.tool"
+
+# Shim: aify'yi ayni kabukta yukler; kaldirinca hem yeni hem eski bicim silinir
+mkdir -p "$AIFY_HOME/f2"; printf '#!/bin/sh\nprintf "[%%s]" "$@"; echo\n' > "$AIFY_HOME/f2/crush"; chmod +x "$AIFY_HOME/f2/crush"
+tar -czf "$AIFY_HOME/crush2.tar.gz" -C "$AIFY_HOME/f2" crush
+AIFY_TEST_ASSET_URL="file://$AIFY_HOME/crush2.tar.gz" "$AIFY" install crush >/dev/null 2>&1
+contains "shim argumanlari aktariyor" "\[a\]\[b\]" "$AIFY_HOME/bin/crush" a b
+contains "shim bosluklu argumani koruyor" "\[a\]\[b c\]\[\*\]" "$AIFY_HOME/bin/crush" a "b c" "*"
+printf '#!/usr/bin/env bash\nexec "/eski/yol/aify" run "crush" "$@"\n' > "$AIFY_HOME/bin/crush-eski"
+printf '#!/bin/sh\necho kullanicinin kendi betigi\n' > "$AIFY_HOME/bin/benim"
+"$AIFY" remove crush >/dev/null 2>&1
+[ ! -e "$AIFY_HOME/bin/crush" ] && [ ! -e "$AIFY_HOME/bin/crush-eski" ] && ok "yeni ve eski bicim shim'ler silindi" || bad "shim kaldi"
+[ -e "$AIFY_HOME/bin/benim" ] && ok "baska dosyalara dokunulmadi" || bad "kullanici dosyasi silindi"
+rm -f "$AIFY_HOME/bin/benim"
+
+# ELF sihirli sayisi yerlesik ile okunuyor; kisa/bos dosyalar ELF sayilmamali
+. "$ROOT/src/lib/aify/core.sh"
+printf '\177EL' > "$AIFY_HOME/kisa"; : > "$AIFY_HOME/bos"
+aify_is_elf "$AIFY_HOME/kisa" && bad "kisa dosya ELF sanildi" || ok "kisa dosya ELF degil"
+aify_is_elf "$AIFY_HOME/bos" && bad "bos dosya ELF sanildi" || ok "bos dosya ELF degil"
+
+head_ "16. Surec butcesi (Android'de her fork birkac ms)"
+if command -v strace >/dev/null 2>&1 && strace -f -o /dev/null true 2>/dev/null; then
+	forks() { # komut... -> clone/fork sayisi
+		local log="$AIFY_HOME/strace.log"
+		strace -f -e trace=clone,clone3,fork,vfork -o "$log" "$@" >/dev/null 2>&1 || true
+		grep -cE '^[0-9]+ +(clone|clone3|fork|vfork)\(' "$log"
+	}
+	AIFY_TEST_ASSET_URL="file://$AIFY_HOME/crush2.tar.gz" "$AIFY" install crush >/dev/null 2>&1
+	n="$(forks "$AIFY" list)";              [ "$n" -le 1 ] && ok "aify list: $n fork" || bad "aify list $n fork (butce 1)"
+	n="$(forks "$AIFY" run crush)";         [ "$n" -le 1 ] && ok "aify run: $n fork" || bad "aify run $n fork (butce 1)"
+	n="$(forks "$AIFY_HOME/bin/crush")";    [ "$n" -le 1 ] && ok "shim: $n fork" || bad "shim $n fork (butce 1)"
+	"$AIFY" remove crush >/dev/null 2>&1
+	if command -v python3 >/dev/null 2>&1; then
+		uihome="$(mktemp -d)"
+		uiforks() {
+			local log="$AIFY_HOME/ui.strace"
+			python3 "$ROOT/tests/ui-drive.py" strace -f -e trace=clone,clone3,fork,vfork -o "$log" \
+				bash "$AIFY" -- "$uihome" "$@" >/dev/null 2>&1
+			grep -cE '^[0-9]+ +(clone|clone3|fork|vfork)\(' "$log"
+		}
+		a="$(uiforks q)"
+		b="$(uiforks '\x1b[B' '\x1b[B' '\x1b[B' '\x1b[B' '\x1b[B' '\x1b[A' j k q)"
+		[ $((b - a)) -le 2 ] && ok "arayuz: 8 tus basisi icin $((b - a)) fork (acilis: $a)" \
+			|| bad "arayuz tus basina fork aciyor: 8 tusta $((b - a))"
+		rm -rf "$uihome"
+	fi
+else
+	printf '  atlandi (strace yok)\n'
+fi
+
+head_ "17. make install / uninstall"
 stage="$AIFY_HOME/stage"
 check "make install" make -s -C "$ROOT" install DESTDIR="$stage" PREFIX=/usr
 check "kurulan aify calisiyor" test -x "$stage/usr/bin/aify"

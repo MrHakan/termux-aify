@@ -3,14 +3,16 @@
 # shellcheck shell=bash
 
 aify_proot_distro()  { aify_config_get proot.distro debian; }
-aify_proot_rootfs()  { printf '%s/files/usr/var/lib/proot-distro/installed-rootfs/%s\n' "${TERMUX_ROOTFS:-/data/data/com.termux}" "$(aify_proot_distro)"; }
+aify_proot_rootfs()  { aify_config_var proot.distro debian; printf '%s/files/usr/var/lib/proot-distro/installed-rootfs/%s\n' "${TERMUX_ROOTFS:-/data/data/com.termux}" "$REPLY"; }
 
 # --- Kullanilabilirlik -------------------------------------------------------
 aify_backend_available() {
 	case "$1" in
 		native) return 0 ;;
 		glibc)  aify_have grun || aify_have glibc-runner ;;
-		proot)  aify_have proot-distro && [ -d "$(aify_proot_rootfs)" ] ;;
+		proot)  aify_have proot-distro || return 1
+		        aify_config_var proot.distro debian
+		        [ -d "${TERMUX_ROOTFS:-/data/data/com.termux}/files/usr/var/lib/proot-distro/installed-rootfs/$REPLY" ] ;;
 		*)      return 1 ;;
 	esac
 }
@@ -190,15 +192,6 @@ aify_proot_exec() {
 
 aify_grun() { if aify_have grun; then grun "$@"; else glibc-runner "$@"; fi; }
 
-# glibc ikilisini dogru sekilde baslatir.
-#   non-PIE (EXEC): ld.so bir EXEC dosyasini yukleyemez (segfault) - ikili
-#     kurulumda patchelf ile yamalandigi icin DOGRUDAN calistirilir.
-#     GitHub Copilot CLI 158MB'lik non-PIE bir Node SEA'dir; segfault'un sebebi
-#     tam olarak buydu.
-#   PIE (DYN): ld.so modu (grun BINARY) yamadan bagimsiz calisir; kendini
-#     guncelleyen araclar (agy) icin daha dayaniklidir.
-# Her iki durumda da Termux'un bionic libtermux-exec.so'su LD_PRELOAD'dan
-# cikarilmali, yoksa glibc sureci onu yuklemeye calisip patlar.
 # glibc yiginini gercekten sinar: getent ile ad cozumleme.
 # Tahmin yerine gercek hatayi gosterir ("token exchange failed" gibi
 # kirpilmis mesajlarin ardindaki sebebi bulmak icin).
@@ -232,14 +225,12 @@ aify_glibc_mode() {
 }
 
 # glibc ikilisini ld.so modunda baslatir (ikili DEGISTIRILMEZ).
+# On kosul: ikili PIE olmali (aify_glibc_mode = grun); ld.so non-PIE bir
+# dosyayi yukleyemez ve segfault verir - cagiran (aify_cmd_run) bunu denetler.
 # Termux'un bionic libtermux-exec.so'su LD_PRELOAD'da kalirsa glibc sureci
 # onu yuklemeye calisip patlar; once temizliyoruz.
 aify_glibc_exec() {
 	local path="$1"; shift
-	if [ "$(aify_glibc_mode "$path")" = proot ]; then
-		aify_err "$path non-PIE: glibc arka ucu bunu calistiramaz"
-		aify_die "proot ile kurun:  aify install <arac> --backend proot"
-	fi
 	unset LD_PRELOAD
 	# shellcheck disable=SC2031  # ustteki alt kabukla ilgisi yok; exec edilecek
 	export PATH="$AIFY_PREFIX/glibc/bin:$PATH"
@@ -251,9 +242,9 @@ aify_glibc_exec() {
 #   1) tool.<id>.backend config'i
 #   2) TOOL_BACKENDS listesindeki ilk kullanilabilir arka uc
 aify_backend_pick() {
-	local id="$1" forced b
-	forced="$(aify_config_get "tool.$id.backend" '')"
-	if [ -n "$forced" ]; then printf '%s\n' "$forced"; return 0; fi
+	local id="$1" b
+	aify_config_var "tool.$id.backend"
+	if [ -n "$REPLY" ]; then printf '%s\n' "$REPLY"; return 0; fi
 	for b in $TOOL_BACKENDS; do
 		aify_backend_available "$b" && { printf '%s\n' "$b"; return 0; }
 	done

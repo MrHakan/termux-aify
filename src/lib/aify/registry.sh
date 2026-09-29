@@ -4,48 +4,80 @@
 
 # Kayit dizinleri: dahili paylasim dizini + kullanicinin kendi tanimlari.
 # Ayni id icin kullanici dosyasi dahili olani ezer.
-aify_registry_dirs() {
-	printf '%s\n' "$AIFY_SHAREDIR/registry.d"
-	printf '%s\n' "$AIFY_HOME/registry.d"
-	[ -n "${AIFY_EXTRA_REGISTRY:-}" ] && printf '%s\n' "$AIFY_EXTRA_REGISTRY"
+# AIFY_REGISTRY_DIRS dizisi alt surec olmadan dolasilabilsin diye tutulur.
+_aify_registry_init() {
+	AIFY_REGISTRY_DIRS=("$AIFY_SHAREDIR/registry.d" "$AIFY_HOME/registry.d")
+	[ -n "${AIFY_EXTRA_REGISTRY:-}" ] && AIFY_REGISTRY_DIRS+=("$AIFY_EXTRA_REGISTRY")
 	return 0
 }
 
-# Tum arac id'leri (alfabetik, tekil)
-aify_tool_ids() {
-	local d f
-	while read -r d; do
+aify_registry_dirs() {
+	_aify_registry_init
+	printf '%s\n' "${AIFY_REGISTRY_DIRS[@]}"
+}
+
+# Tum arac id'leri (alfabetik, tekil). sort/basename yerine saf bash:
+# liste kucuk (onlarca oge) oldugu icin ekleme siralamasi yeterli.
+_aify_tool_ids_var() { # -> AIFY_TOOL_IDS dizisi
+	local d f id i j
+	local -A seen=()
+	AIFY_TOOL_IDS=()
+	_aify_registry_init
+	for d in "${AIFY_REGISTRY_DIRS[@]}"; do
 		[ -d "$d" ] || continue
 		for f in "$d"/*.tool; do
 			[ -e "$f" ] || continue
-			basename "$f" .tool
+			id="${f##*/}"; id="${id%.tool}"
+			[ -n "${seen[$id]:-}" ] && continue
+			seen[$id]=1
+			# Siraya ekle
+			i=${#AIFY_TOOL_IDS[@]}
+			while [ "$i" -gt 0 ]; do
+				j=$((i - 1))
+				[[ "${AIFY_TOOL_IDS[$j]}" > "$id" ]] || break
+				AIFY_TOOL_IDS[i]="${AIFY_TOOL_IDS[j]}"
+				i=$j
+			done
+			AIFY_TOOL_IDS[i]="$id"
 		done
-	done < <(aify_registry_dirs) | sort -u
+	done
 }
 
-# id -> dosya yolu (son bulunan kazanir)
+aify_tool_ids() {
+	_aify_tool_ids_var
+	[ ${#AIFY_TOOL_IDS[@]} -eq 0 ] || printf '%s\n' "${AIFY_TOOL_IDS[@]}"
+}
+
+# id -> dosya yolu (son bulunan kazanir); REPLY'ye yazar
+_aify_tool_file_var() {
+	local d
+	REPLY=''
+	_aify_registry_init
+	for d in "${AIFY_REGISTRY_DIRS[@]}"; do
+		[ -f "$d/$1.tool" ] && REPLY="$d/$1.tool"
+	done
+	[ -n "$REPLY" ]
+}
+
 aify_tool_file() {
-	local id="$1" d found=''
-	while read -r d; do
-		[ -f "$d/$id.tool" ] && found="$d/$id.tool"
-	done < <(aify_registry_dirs)
-	[ -n "$found" ] || return 1
-	printf '%s\n' "$found"
+	_aify_tool_file_var "$1" || return 1
+	printf '%s\n' "$REPLY"
 }
 
-aify_tool_exists() { aify_tool_file "$1" >/dev/null 2>&1; }
+aify_tool_exists() { _aify_tool_file_var "$1"; }
 
 # Arac tanimini yukler; TOOL_* degiskenlerini doldurur.
 aify_tool_load() {
 	local id="$1" file
-	file="$(aify_tool_file "$id")" || return 1
+	_aify_tool_file_var "$id" || return 1
+	file="$REPLY"
 
 	# Onceki tanimdan kalanlari temizle
 	unset TOOL_ID TOOL_NAME TOOL_SUMMARY TOOL_HOMEPAGE TOOL_KIND TOOL_PACKAGE \
 	      TOOL_BIN TOOL_ALIASES TOOL_RUNTIME TOOL_BACKENDS TOOL_DEPS TOOL_NPM_OS \
 	      TOOL_NPM_CPU TOOL_NPM_LIBC TOOL_NATIVE_BINARY TOOL_INSTALLER_URL \
 	      TOOL_INSTALLER_ARGS TOOL_PKG TOOL_NOTES TOOL_AUTH TOOL_TAGS TOOL_ENV \
-	      TOOL_PROOT_INSTALL TOOL_VERSION_ARGS
+	      TOOL_PROOT_INSTALL TOOL_VERSION_ARGS TOOL_GH_REPO TOOL_GH_MATCH
 	unset -f tool_post_install 2>/dev/null || true
 	# shellcheck disable=SC2034  # arac tanimlari ve run.sh kullanir
 	TOOL_ENV=()
@@ -69,7 +101,7 @@ aify_tool_line() {
 	local id="$1" mark status backend
 	aify_tool_load "$id" || return 1
 	if aify_is_installed "$id"; then
-		backend="$(aify_state_get "$id" backend || echo '?')"
+		aify_state_var "$id" backend '?'; backend="$REPLY"
 		mark="${C_GREEN}*${C_RESET}"
 		status="${C_DIM}kurulu (${backend})${C_RESET}"
 	else
@@ -82,9 +114,10 @@ aify_tool_line() {
 aify_cmd_list() {
 	local id
 	printf '%sAraclar%s  (%s: kurulu)\n\n' "$C_BOLD" "$C_RESET" "${C_GREEN}*${C_RESET}"
-	while read -r id; do
+	_aify_tool_ids_var
+	for id in "${AIFY_TOOL_IDS[@]}"; do
 		aify_tool_line "$id"
-	done < <(aify_tool_ids)
+	done
 	printf '\n%sKurmak icin:%s aify install <id>\n' "$C_DIM" "$C_RESET"
 }
 
@@ -107,8 +140,8 @@ aify_cmd_info() {
 		printf '\n  %sdurum:%s kurulu\n' "$C_GREEN" "$C_RESET"
 		local k
 		for k in backend version path installed_at; do
-			local v; v="$(aify_state_get "$id" "$k" 2>/dev/null || true)"
-			[ -n "$v" ] && printf '  %-14s %s\n' "$k:" "$v"
+			aify_state_var "$id" "$k"
+			[ -n "$REPLY" ] && printf '  %-14s %s\n' "$k:" "$REPLY"
 		done
 	else
 		printf '\n  %sdurum:%s kurulu degil\n' "$C_DIM" "$C_RESET"

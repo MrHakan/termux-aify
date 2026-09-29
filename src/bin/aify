@@ -4,17 +4,26 @@
 set -euo pipefail
 
 # --- Kendini bul (hem repo icinden hem kurulu halde calisir) -----------------
+# Her shim bu dosyayi calistirdigi icin burada surec baslatmiyoruz: Android'de
+# her fork birkac milisaniye tutuyor. readlink yalnizca symlink varsa cagrilir;
+# goreli yollar cd yerlesigi ile (alt kabuksuz) mutlak yola cevrilir.
 _aify_self() {
-	local src="${BASH_SOURCE[0]}" dir
+	local src="${BASH_SOURCE[0]}" dir here="$PWD"
 	while [ -L "$src" ]; do
-		dir="$(cd -P "$(dirname "$src")" && pwd)"
+		case "$src" in */*) dir="${src%/*}" ;; *) dir=. ;; esac
 		src="$(readlink "$src")"
 		case "$src" in /*) ;; *) src="$dir/$src" ;; esac
 	done
-	printf '%s/%s\n' "$(cd -P "$(dirname "$src")" && pwd)" "$(basename "$src")"
+	case "$src" in */*) dir="${src%/*}" ;; *) dir=. ;; esac
+	# "." ve ".." bilesenleri AIFY_ROOT'u (dir'in ustu) bozar; onlari cozeriz.
+	case "/$dir/" in
+		*/./*|*/../*) builtin cd -P -- "$dir" 2>/dev/null && dir="$PWD"; builtin cd -- "$here" 2>/dev/null ;;
+	esac
+	case "$dir" in /*) ;; *) dir="$here/$dir" ;; esac
+	AIFY_SELF="$dir/${src##*/}"
+	AIFY_ROOT="${dir%/*}"
 }
-AIFY_SELF="$(_aify_self)"
-AIFY_ROOT="$(dirname "$(dirname "$AIFY_SELF")")"
+_aify_self
 AIFY_LIBDIR="${AIFY_LIBDIR:-$AIFY_ROOT/lib/aify}"
 AIFY_SHAREDIR="${AIFY_SHAREDIR:-$AIFY_ROOT/share/aify}"
 export AIFY_SELF AIFY_LIBDIR AIFY_SHAREDIR
@@ -123,12 +132,15 @@ aify_cmd_config() {
 aify_cmd_registry() {
 	case "${1:-list}" in
 		list|'')
-			local d
-			while read -r d; do
+			local d f
+			_aify_registry_init
+			for d in "${AIFY_REGISTRY_DIRS[@]}"; do
 				[ -d "$d" ] || continue
 				printf '%s%s%s\n' "$C_BOLD" "$d" "$C_RESET"
-				find "$d" -maxdepth 1 -name '*.tool' -printf '  %f\n' 2>/dev/null | sort || true
-			done < <(aify_registry_dirs)
+				for f in "$d"/*.tool; do
+					[ -e "$f" ] && printf '  %s\n' "${f##*/}"
+				done
+			done
 			;;
 		path) aify_tool_file "${2:?kullanim: aify registry path <id>}" ;;
 		*) aify_die "bilinmeyen registry komutu: $1" ;;

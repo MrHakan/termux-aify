@@ -42,9 +42,14 @@ apt-repo: deb
 check:
 	tests/run-tests.sh
 
+# Her tarif satiri ayri bir kabukta calisir; 'exit 0' yalnizca kendi satirini
+# bitirip shellcheck'i yine de calistiriyordu. Tek satirda kosullu yapiyoruz.
 lint:
-	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck yok, atlaniyor"; exit 0; }
-	shellcheck -s bash -e SC1090,SC1091,SC1094 src/bin/aify src/lib/aify/*.sh packaging/*.sh install.sh tests/run-tests.sh
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck -s bash -e SC1090,SC1091,SC1094 src/bin/aify src/lib/aify/*.sh packaging/*.sh install.sh tests/run-tests.sh; \
+	else \
+		echo "shellcheck yok, atlaniyor"; \
+	fi
 
 clean:
 	rm -rf build dist site

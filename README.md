@@ -156,7 +156,7 @@ Just running `aify` in the terminal opens an interactive UI with an ASCII logo �
 pick a backend, run diagnostics; all from here:
 
 ```
-  ▄▀█ █ █▀▀ █▄█   aify v0.3.0
+  ▄▀█ █ █▀▀ █▄█   aify v0.4.0
   █▀█ █ █▀░  █    An AI CLI manager for Termux
 
   Termux · aarch64 · node 24.18.0 · backend: native,glibc
@@ -283,10 +283,27 @@ Environment variables: `AIFY_HOME` (default `~/.aify`), `AIFY_YES=1` (skip promp
 
 ---
 
+## Performance
+
+On a phone, starting a process (fork + exec) costs several milliseconds, often more with
+Termux's `LD_PRELOAD` in the way. `aify` therefore keeps its hot paths free of subprocesses:
+
+| Path | Processes started by `aify` itself |
+|---|---|
+| typing `claude`, `codex`, … (shim → `aify run`) | 0 (the shim sources `aify` instead of starting a second `bash`) |
+| `aify list` | 0 |
+| one key press in the interactive UI | 0 (frames are built in memory and written once) |
+
+Before 0.4.0 these were ~17 per tool launch, ~70 for `aify list`, and ~70 plus a
+`node --version` for every key press in the UI. `make check` enforces the budget with `strace`
+when it is available, so a regression fails the tests.
+
+---
+
 ## Development
 
 ```bash
-make check     # 101 tests (also runs outside Termux)
+make check     # 124 tests (also runs outside Termux)
 make lint      # shellcheck
 make deb       # dist/aify_<version>_all.deb
 make apt-repo  # a publish-ready apt repo under site/

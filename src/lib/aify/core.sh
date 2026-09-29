@@ -4,7 +4,7 @@
 
 # Bu degiskenler diger lib dosyalarinda ve bin/aify icinde kullanilir.
 # shellcheck disable=SC2034
-AIFY_VERSION="0.3.0"
+AIFY_VERSION="0.4.0"
 
 # --- Yollar -----------------------------------------------------------------
 AIFY_PREFIX="${PREFIX:-/usr}"
@@ -79,31 +79,53 @@ aify_confirm() {
 	case "$reply" in ''|e|E|y|Y|evet|yes) return 0 ;; *) return 1 ;; esac
 }
 
+# --- key=value dosyalari (config + state) ----------------------------------
+# Saf bash okuyucu: sed/tail yerine read dongusu (her alt surec Android'de
+# birkac ms). Son eslesen satir kazanir; sonuc REPLY'ye yazilir.
+# Donus: dosya yoksa 2, anahtar yoksa 1.
+_aify_kv_read() { # dosya anahtar
+	local line found=1
+	REPLY=''
+	[ -f "$1" ] || return 2
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in "$2="*) REPLY="${line#*=}"; found=0 ;; esac
+	done < "$1"
+	return "$found"
+}
+
+# Anahtari dosyadan silip (varsa) yeni satiri ekler; bos deger = sil.
+_aify_kv_write() { # dosya anahtar [deger]
+	local file="$1" key="$2" tmp="$1.tmp.$$" line
+	{
+		if [ -f "$file" ]; then
+			while IFS= read -r line || [ -n "$line" ]; do
+				case "$line" in "$key="*) ;; *) printf '%s\n' "$line" ;; esac
+			done < "$file"
+		fi
+		if [ $# -ge 3 ]; then printf '%s=%s\n' "$key" "$3"; fi
+	} > "$tmp" && mv -f "$tmp" "$file"
+}
+
 # --- Config (key=value) ------------------------------------------------------
 aify_config_get() {
-	local key="$1" default="${2:-}" val=''
-	if [ -f "$AIFY_CONFIG_FILE" ]; then
-		val="$(sed -n "s/^$(printf '%s' "$key" | sed 's/[][\.*^$\/]/\\&/g')=//p" "$AIFY_CONFIG_FILE" | tail -n1)"
-	fi
-	printf '%s\n' "${val:-$default}"
+	_aify_kv_read "$AIFY_CONFIG_FILE" "$1" || true
+	printf '%s\n' "${REPLY:-${2:-}}"
+}
+
+# Alt kabuksuz surum: sonucu REPLY'ye yazar (sicak yollar icin)
+aify_config_var() { # anahtar [varsayilan]
+	_aify_kv_read "$AIFY_CONFIG_FILE" "$1" || true
+	REPLY="${REPLY:-${2:-}}"
 }
 
 aify_config_set() {
-	local key="$1" value="$2" tmp
 	aify_ensure_dirs
-	touch "$AIFY_CONFIG_FILE"
-	tmp="$AIFY_CONFIG_FILE.tmp.$$"
-	grep -v "^$(printf '%s' "$key" | sed 's/[][\.*^$\/]/\\&/g')=" "$AIFY_CONFIG_FILE" > "$tmp" 2>/dev/null || true
-	printf '%s=%s\n' "$key" "$value" >> "$tmp"
-	mv "$tmp" "$AIFY_CONFIG_FILE"
+	_aify_kv_write "$AIFY_CONFIG_FILE" "$1" "$2"
 }
 
 aify_config_unset() {
-	local key="$1" tmp
 	[ -f "$AIFY_CONFIG_FILE" ] || return 0
-	tmp="$AIFY_CONFIG_FILE.tmp.$$"
-	grep -v "^$(printf '%s' "$key" | sed 's/[][\.*^$\/]/\\&/g')=" "$AIFY_CONFIG_FILE" > "$tmp" 2>/dev/null || true
-	mv "$tmp" "$AIFY_CONFIG_FILE"
+	_aify_kv_write "$AIFY_CONFIG_FILE" "$1"
 }
 
 aify_config_list() {
@@ -113,25 +135,29 @@ aify_config_list() {
 
 # --- State (kurulu arac bilgisi) --------------------------------------------
 aify_state_file() { printf '%s/%s\n' "$AIFY_STATE_DIR" "$1"; }
-aify_is_installed() { [ -f "$(aify_state_file "$1")" ]; }
+aify_is_installed() { [ -f "$AIFY_STATE_DIR/$1" ]; }
 
 aify_state_get() {
-	local id="$1" key="$2" f
-	f="$(aify_state_file "$id")"
-	[ -f "$f" ] || return 1
-	sed -n "s/^$key=//p" "$f" | tail -n1
+	local rc=0
+	_aify_kv_read "$AIFY_STATE_DIR/$1" "$2" || rc=$?
+	[ "$rc" -eq 2 ] && return 1
+	[ -n "$REPLY" ] && printf '%s\n' "$REPLY"
+	return 0
+}
+
+# Alt kabuksuz surum: REPLY <- deger (yoksa varsayilan)
+aify_state_var() { # id anahtar [varsayilan]
+	_aify_kv_read "$AIFY_STATE_DIR/$1" "$2" || true
+	REPLY="${REPLY:-${3:-}}"
 }
 
 aify_state_put() {
 	local id="$1"; shift
 	aify_ensure_dirs
-	local f; f="$(aify_state_file "$id")"
-	: > "$f"
-	local kv
-	for kv in "$@"; do printf '%s\n' "$kv" >> "$f"; done
+	printf '%s\n' "$@" > "$AIFY_STATE_DIR/$id"
 }
 
-aify_state_del() { rm -f "$(aify_state_file "$1")"; }
+aify_state_del() { rm -f "$AIFY_STATE_DIR/$1"; }
 
 # --- Indirme ----------------------------------------------------------------
 aify_fetch() { # url -> stdout
@@ -150,10 +176,9 @@ aify_download() { # url dest
 # Bir dosyanin Termux'ta dogrudan calisip calisamayacagini belirler.
 # Cikti: script | static | glibc | musl | unknown | missing
 aify_binary_class() {
-	local f="$1" magic interp
+	local f="$1" interp
 	[ -f "$f" ] || { echo missing; return; }
-	magic="$(head -c 4 "$f" 2>/dev/null | od -An -tx1 | tr -d ' \n')"
-	if [ "$magic" != "7f454c46" ]; then echo script; return; fi
+	aify_is_elf "$f" || { echo script; return; }
 
 	if aify_have readelf; then
 		interp="$(readelf -l "$f" 2>/dev/null | sed -n 's/.*\[Requesting program interpreter: \([^]]*\)\]/\1/p' | head -n1)"
@@ -223,10 +248,13 @@ aify_elf_type() {
 	esac
 }
 
-# Dosya ELF mi? (O(1) - calistirma yolunda tam siniflandirma pahali olurdu)
+# Dosya ELF mi? Calistirma yolunda (her shim cagrisi) kullanildigi icin
+# head|od yerine read yerlesigi: sihirli sayi (\x7fELF) NUL icermez.
 aify_is_elf() {
+	local magic=''
 	[ -f "$1" ] || return 1
-	[ "$(head -c 4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]
+	LC_ALL=C IFS= read -r -n 4 -d '' magic < "$1" 2>/dev/null
+	[ "$magic" = $'\x7fELF' ]
 }
 
 # Sinifa gore onerilen backend
