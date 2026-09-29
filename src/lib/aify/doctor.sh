@@ -96,9 +96,9 @@ aify_cmd_doctor() {
 		id="$(basename "$f")"
 		aify_tool_load "$id" 2>/dev/null || { _d_warn "$id: kayit tanimi yok (registry'den silinmis)"; continue; }
 		local backend path class
-		backend="$(aify_state_get "$id" backend || echo '?')"
-		path="$(aify_state_get "$id" path || echo '')"
-		class="$(aify_state_get "$id" class || echo '')"
+		aify_state_var "$id" backend '?'; backend="$REPLY"
+		aify_state_var "$id" path;        path="$REPLY"
+		aify_state_var "$id" class;       class="$REPLY"
 		if [ "$backend" = proot ]; then
 			if aify_backend_available proot; then _d_ok "$id [proot] $path"
 			else _d_bad "$id proot ile kurulu ama kap yok: aify backend setup proot"; fi

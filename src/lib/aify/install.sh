@@ -104,20 +104,33 @@ aify_write_shim() {
 	local id="$1" bin="$2" self="${AIFY_SELF:-$AIFY_PREFIX/bin/aify}"
 	aify_ensure_dirs
 	local shim="$AIFY_BIN_DIR/$bin"
+	# aify'yi exec etmek yerine ayni kabukta yukluyoruz: arac her
+	# calistiginda ikinci bir bash baslatmanin (telefonda onlarca ms) onune
+	# gecer. aify kendi yolunu BASH_SOURCE'tan buldugu icin boyle de calisir.
+	local qid qself
+	printf -v qid '%q' "$id"
+	printf -v qself '%q' "$self"
 	cat > "$shim" <<SHIM
 #!/usr/bin/env bash
 # aify tarafindan uretildi - elle duzenlemeyin ($id)
-exec "$self" run "$id" "\$@"
+set -- run $qid "\$@"
+. $qself
+exit
 SHIM
 	chmod +x "$shim"
 	printf '%s\n' "$shim"
 }
 
 aify_remove_shims() {
-	local id="$1" f
+	local id="$1" f qid
+	printf -v qid '%q' "$id"
 	for f in "$AIFY_BIN_DIR"/*; do
 		[ -f "$f" ] || continue
-		grep -q "^exec .* run \"$id\"" "$f" 2>/dev/null && rm -f "$f"
+		# Yeni bicim: 'set -- run <id>'; eski (<= 0.3.0) bicim: 'exec ... run "<id>"'
+		if grep -qxF "set -- run $qid \"\$@\"" "$f" 2>/dev/null \
+			|| grep -q "^exec .* run \"$id\" " "$f" 2>/dev/null; then
+			rm -f "$f"
+		fi
 	done
 	return 0
 }
@@ -252,13 +265,20 @@ aify_cmd_install() {
 	local forced_backend='' ids=()
 	while [ $# -gt 0 ]; do
 		case "$1" in
-			-b|--backend) forced_backend="$2"; shift 2 ;;
+			-b|--backend)
+				[ $# -ge 2 ] || aify_die "$1 bir deger ister: native | glibc | proot"
+				forced_backend="$2"; shift 2 ;;
+			--backend=*) forced_backend="${1#*=}"; shift ;;
 			-y|--yes) export AIFY_YES=1; shift ;;
 			-*) aify_die "bilinmeyen secenek: $1" ;;
 			*) ids+=("$1"); shift ;;
 		esac
 	done
 	[ ${#ids[@]} -gt 0 ] || aify_die "kullanim: aify install [--backend native|glibc|proot] <id>..."
+	case "$forced_backend" in
+		''|native|glibc|proot) ;;
+		*) aify_die "gecersiz arka uc: $forced_backend (native | glibc | proot)" ;;
+	esac
 	aify_ensure_dirs
 	local id
 	for id in "${ids[@]}"; do _aify_install_one "$id" "$forced_backend"; done
@@ -327,7 +347,7 @@ _aify_install_one() {
 			# grun'a verip "invalid ELF header" almaya yol aciyordu.
 			local want pinned
 			want="$(aify_runtime_backend "$binpath" "$class")"
-			pinned="$(aify_config_get "tool.$id.backend" '')"
+			aify_config_var "tool.$id.backend"; pinned="$REPLY"
 			if [ -n "$pinned" ]; then
 				[ "$pinned" != "$want" ] && aify_warn "arka uc ayarla '$pinned' olarak sabitlenmis, ikili ise $want istiyor"
 			elif [ "$want" = proot ] && [ "$backend" != proot ] && [ "$class" = glibc ]; then
@@ -393,7 +413,7 @@ aify_cmd_remove() {
 	for id in "$@"; do
 		aify_tool_load "$id" || aify_die "bilinmeyen arac: $id"
 		aify_is_installed "$id" || { aify_warn "$id zaten kurulu degil"; continue; }
-		local backend; backend="$(aify_state_get "$id" backend || echo native)"
+		local backend; aify_state_var "$id" backend native; backend="$REPLY"
 		aify_info "$TOOL_NAME kaldiriliyor"
 		case "$TOOL_KIND:$backend" in
 			npm:proot) aify_proot_exec "npm uninstall -g $(printf '%q' "$TOOL_PACKAGE")" || true ;;
@@ -420,7 +440,7 @@ aify_cmd_update() {
 	for id in "${ids[@]}"; do
 		aify_tool_load "$id" || { aify_warn "bilinmeyen arac: $id"; continue; }
 		aify_is_installed "$id" || { aify_warn "$id kurulu degil"; continue; }
-		local backend; backend="$(aify_state_get "$id" backend || echo native)"
+		local backend; aify_state_var "$id" backend native; backend="$REPLY"
 		aify_info "$TOOL_NAME guncelleniyor [$backend]"
 		_aify_install_one "$id" "$backend"
 	done

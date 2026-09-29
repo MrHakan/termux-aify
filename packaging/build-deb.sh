@@ -46,7 +46,7 @@ if [ "$1" = "configure" ] || [ -z "${1:-}" ]; then
 	echo "aify kuruldu. Baslamak icin:"
 	echo "    aify setup     # dizinler ve temel paketler"
 	echo "    aify list      # kurulabilir araclar"
-	echo "    aify install gemini codex"
+	echo "    aify install codex qwen"
 	echo ""
 fi
 exit 0
