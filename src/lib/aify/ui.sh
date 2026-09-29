@@ -139,7 +139,7 @@ _ui_refresh_env() {
 }
 
 _ui_load_tools() {
-	UI_IDS=(); UI_NAMECOL=(); UI_INST=(); UI_BACKEND=()
+	UI_IDS=(); UI_NAMECOL=(); UI_INST=(); UI_BACKEND=(); UI_SUMMARY=(); UI_INSTALLED=0
 	local id nc
 	_aify_tool_ids_var
 	for id in "${AIFY_TOOL_IDS[@]}"; do
@@ -147,8 +147,10 @@ _ui_load_tools() {
 		UI_IDS+=("$id")
 		printf -v nc '%-11s %-24s' "$id" "${TOOL_NAME:0:24}"
 		UI_NAMECOL+=("$nc")
+		UI_SUMMARY+=("${TOOL_SUMMARY:-}")
 		if aify_is_installed "$id"; then
 			UI_INST+=(1)
+			UI_INSTALLED=$((UI_INSTALLED + 1))
 			aify_state_var "$id" backend '?'
 			UI_BACKEND+=("$REPLY")
 		else
@@ -170,12 +172,12 @@ _ui_keyhint() { # tus aciklama ... -> REPLY
 
 # --- Ana liste ---------------------------------------------------------------
 _ui_draw_list() {
-	local i n="${#UI_IDS[@]}" glyph vis
+	local i n="${#UI_IDS[@]}" glyph vis desc
 	UI_BUF=$'\033[H'
 	_ui_banner_lines
 	_ui_put "$UI_ENV_LINE"
 	_ui_put ''
-	_ui_box_top Araclar
+	_ui_box_top "Araclar ($UI_INSTALLED/$n kurulu)"
 	for ((i = 0; i < n; i++)); do
 		if [ -n "${UI_INST[$i]}" ]; then
 			glyph="$C_GREEN$UI_OK$C_RESET"
@@ -190,6 +192,10 @@ _ui_draw_list() {
 		fi
 	done
 	_ui_box_bottom
+	# Secili aracin aciklamasi: gezinirken ne oldugunu gosterir (tek satira sigar)
+	desc="${UI_SUMMARY[$UI_SEL]}"
+	[ "${#desc}" -gt $((UI_W - 4)) ] && desc="${desc:0:UI_W-7}..."
+	_ui_put "  $C_ACCENT$desc$C_RESET"
 	_ui_put ''
 	_ui_put "$UI_HINT1"
 	_ui_put "$UI_HINT2"
